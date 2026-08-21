@@ -43,6 +43,18 @@ const LISTED_ACCESS_TOKEN = "SHOPIFY_ACCESS_TOKEN (Admin API access token кас
  * discovering them one by one.
  */
 function missingCredentialsMessage(config: ShopifyAdminConfig): string | undefined {
+  // A malformed value degrades the config to "no credentials", so without this
+  // branch every call would name the two credential variables — which the
+  // operator usually set correctly — and never name the one that actually
+  // broke. Report the real problem instead.
+  if (config.configProblem) {
+    return (
+      `Сервер запущен без подключения к магазину из-за ошибки конфигурации: ${config.configProblem}` +
+      " Это не сбой сети — повторный вызов не поможет: исправьте переменную окружения в конфигурации" +
+      " MCP-клиента и перезапустите сервер."
+    );
+  }
+
   const missing: Array<{ single: string; listed: string }> = [];
   // The endpoint stands in for the domain: an explicit SHOPIFY_API_BASE
   // override supplies it without any domain at all.
@@ -89,22 +101,127 @@ export function normalizePageSize(first: number | undefined): number {
   return Math.min(Math.max(Math.trunc(first), MIN_PAGE_SIZE), MAX_PAGE_SIZE);
 }
 
+/** What the document's first executable operation is. */
+export type OperationKind = "query" | "mutation" | "subscription" | "shorthand" | "unknown";
+
 /**
- * Whether a GraphQL document's first operation is a mutation. Used to pick
- * retry safety for `graphql_request`, the one caller whose document the client
- * did not write itself. Comments and leading whitespace are stripped first; an
- * unparseable document counts as a mutation, because guessing "safe to repeat"
- * about an unknown write is how a write lands twice.
+ * The kind of the first *executable operation* in a GraphQL document — the
+ * retry-safety gate for `graphql_request`, the one caller whose document the
+ * client did not write itself.
+ *
+ * It cannot just read the first keyword: fragment definitions may legally come
+ * before the operation they serve, so `fragment F on Product { id } mutation M
+ * { … }` opens with `fragment` while being a mutation. Reading only the first
+ * word classified that as a query and let a mutation into the 5xx retry loop —
+ * exactly the double-write this whole asymmetry exists to prevent.
+ *
+ * So this walks the document instead, tracking brace depth and skipping what
+ * cannot contain a top-level definition: comments, strings, block strings, and
+ * anything inside `(…)` (a directive or variable default may carry braces of
+ * its own). The first depth-0 `query`/`mutation`/`subscription` keyword wins;
+ * a depth-0 `{` that is not a fragment body is the shorthand query form.
+ */
+export function firstOperationKind(document: string): OperationKind {
+  let i = 0;
+  let depth = 0;
+  let parens = 0;
+  let pendingFragment = false;
+  let word = "";
+
+  /** Consumes the identifier just collected; returns the operation it names, if any. */
+  const takeWord = (): OperationKind | null => {
+    if (!word) return null;
+    const w = word.toLowerCase();
+    word = "";
+    if (w === "fragment") {
+      pendingFragment = true;
+      return null;
+    }
+    if (w === "query" || w === "mutation" || w === "subscription") return w;
+    return null;
+  };
+
+  while (i < document.length) {
+    const ch = document[i];
+
+    if (ch === "#") {
+      const found = takeWord();
+      if (found) return found;
+      while (i < document.length && document[i] !== "\n") i++;
+      continue;
+    }
+
+    if (document.startsWith('"""', i)) {
+      const found = takeWord();
+      if (found) return found;
+      const end = document.indexOf('"""', i + 3);
+      i = end === -1 ? document.length : end + 3;
+      continue;
+    }
+
+    if (ch === '"') {
+      const found = takeWord();
+      if (found) return found;
+      i++;
+      while (i < document.length && document[i] !== '"') {
+        if (document[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+
+    // Argument lists can hold braces (`@dir(if: {x: 1})`, `$v: In = {a: 1}`),
+    // so brace depth is only meaningful outside them.
+    if (ch === "(" || ch === ")") {
+      const found = takeWord();
+      if (found) return found;
+      if (ch === "(") parens++;
+      else if (parens > 0) parens--;
+      i++;
+      continue;
+    }
+
+    if (parens === 0 && (ch === "{" || ch === "}")) {
+      const found = takeWord();
+      if (found) return found;
+      if (ch === "{") {
+        if (depth === 0) {
+          // A top-level selection set either closes a fragment header or is the
+          // shorthand operation form, which is always a query.
+          if (pendingFragment) pendingFragment = false;
+          else return "shorthand";
+        }
+        depth++;
+      } else if (depth > 0) {
+        depth--;
+      }
+      i++;
+      continue;
+    }
+
+    if (depth === 0 && parens === 0 && /[A-Za-z_]/.test(ch)) {
+      word += ch;
+      i++;
+      continue;
+    }
+
+    const found = takeWord();
+    if (found) return found;
+    i++;
+  }
+
+  return takeWord() ?? "unknown";
+}
+
+/**
+ * Whether a document must be treated as a write. Only a *proven* non-mutation
+ * is safe to repeat: an unreadable document counts as a mutation, because
+ * guessing "safe to repeat" about an unknown write is how a write lands twice.
  */
 export function isMutationDocument(query: string): boolean {
-  const stripped = query.replace(/#[^\n]*/g, "").trim();
-  if (stripped === "") return true;
-  const keyword = /^([A-Za-z_]+)/.exec(stripped)?.[1]?.toLowerCase();
-  // A document may open with the operation keyword, a shorthand selection set
-  // ("{ shop { name } }" — always a query), or a fragment definition.
-  if (stripped.startsWith("{")) return false;
-  if (keyword === "query" || keyword === "fragment") return false;
-  return true;
+  const kind = firstOperationKind(query);
+  return kind === "mutation" || kind === "unknown";
 }
 
 /**
@@ -245,7 +362,7 @@ const CUSTOMER_LIST_FIELDS = `
   defaultAddress { city country }`;
 
 const CUSTOMERS_QUERY = `query ($first: Int!, $after: String, $query: String) {
-  customersCount { count }
+  customersCount(query: $query) { count }
   customers(first: $first, after: $after, query: $query) {
     nodes {${CUSTOMER_LIST_FIELDS} }
     pageInfo { hasNextPage endCursor }
@@ -442,14 +559,19 @@ export class ShopifyAdminClient {
    * `userErrors` of an arbitrary document are NOT interpreted here — the raw
    * payload goes back to the caller.
    */
-  async request<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<ApiResponse<T>> {
-    return this.send<T>(query, variables, !isMutationDocument(query));
+  async request<T = unknown>(
+    query: string,
+    variables?: Record<string, unknown>,
+    operationName?: string,
+  ): Promise<ApiResponse<T>> {
+    return this.send<T>(query, variables, !isMutationDocument(query), operationName);
   }
 
   private async send<T>(
     query: string,
     variables: Record<string, unknown> | undefined,
     retryUnsafe: boolean,
+    operationName?: string,
   ): Promise<ApiResponse<T>> {
     // A missing credential is rejected before the request is built, retried or
     // fetched: it is a configuration problem, not transport trouble, so it
@@ -459,7 +581,9 @@ export class ShopifyAdminClient {
     if (missing) throw new CredentialsError(missing);
     const endpoint = this.endpoint as string;
 
-    const payload = JSON.stringify(variables === undefined ? { query } : { query, variables });
+    const payload = JSON.stringify(
+      compact({ query, variables, operationName } as Record<string, unknown>),
+    );
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -525,8 +649,19 @@ export class ShopifyAdminClient {
         });
       }
 
-      const data = (body as { data?: unknown } | undefined)?.data;
-      return { data: (data ?? {}) as T, cost };
+      // A 200 whose body is empty, truncated mid-stream or not GraphQL at all
+      // used to coerce to `{}` and be reported as a successful call, so the
+      // agent read "the shop has no products" instead of "the answer never
+      // arrived". Only a real `data` object counts as a result. (`data: null`
+      // is only legal alongside `errors`, which the branch above already took.)
+      const data = isRecord(body) ? body.data : undefined;
+      if (!isRecord(data)) {
+        throw new ShopifyAdminError(res.status, body, "Ответ Shopify не содержит объект data", {
+          cost,
+          kind: "graphql",
+        });
+      }
+      return { data: data as T, cost };
     }
   }
 
@@ -827,6 +962,11 @@ function requestedCost(body: unknown): number | undefined {
 
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** A non-null plain object — what both a GraphQL body and its `data` must be. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Parses a response body, degrading to the raw text (or undefined when empty). */

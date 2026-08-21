@@ -42,8 +42,17 @@ test("the schema requires a document and takes variables as an object", () => {
 test("the document and variables reach the client verbatim, envelope comes back", async () => {
   const { calls, tools } = make();
   const res = await tools.graphql_request({ query: "query ($id: ID!) { node(id: $id) { id } }", variables: { id: "1" } });
-  assert.deepEqual(calls[0].params, ["query ($id: ID!) { node(id: $id) { id } }", { id: "1" }]);
+  assert.deepEqual(calls[0].params, ["query ($id: ID!) { node(id: $id) { id } }", { id: "1" }, undefined]);
   assert.deepEqual(JSON.parse(res.content[0].text), { data: { shop: { name: "Test" } }, cost: COST });
+});
+
+test("operationName is offered and forwarded — a multi-operation document needs it", async () => {
+  const { calls, configs, tools } = make();
+  const schema = z.object(configs.graphql_request.inputSchema ?? {});
+  assert.equal(schema.safeParse({ query: "query A { x } query B { y }", operationName: "B" }).success, true);
+  assert.equal(schema.safeParse({ query: "query A { x }", operationName: "" }).success, false);
+  await tools.graphql_request({ query: "query A { x } query B { y }", operationName: "B" });
+  assert.equal(calls[0].params[2], "B");
 });
 
 test("a client rejection is returned as an isError result, not thrown", async () => {

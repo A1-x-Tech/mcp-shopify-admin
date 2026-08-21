@@ -31,6 +31,12 @@ export interface ShopifyAdminConfig {
    * when the domain is missing — no request leaves the client then.
    */
   endpoint?: string;
+  /**
+   * Message of the {@link ConfigError} that degraded this config, when one did.
+   * Set by index.ts so a tool call can name the variable that actually broke
+   * instead of the credentials, which are usually set correctly.
+   */
+  configProblem?: string;
   /** Per-request timeout in milliseconds. Defaults to 30_000. */
   timeoutMs?: number;
   /** Max retries for transient failures (THROTTLED always, 5xx/network on reads). Defaults to 4. */

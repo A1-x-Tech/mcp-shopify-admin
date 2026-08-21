@@ -52,6 +52,23 @@ export function hasCredentials(config: ShopifyAdminConfig): boolean {
 }
 
 /**
+ * Where the server points, in a form that is safe to print. MCP hosts capture
+ * stderr to disk, so this never returns anything that could carry a secret: the
+ * store domain when there is one, otherwise the endpoint reduced to origin and
+ * path — dropping any `user:password@` the URL may hold.
+ */
+export function describeTarget(config: ShopifyAdminConfig): string {
+  if (config.storeDomain) return config.storeDomain;
+  if (!config.endpoint) return "эндпоинт не задан";
+  try {
+    const url = new URL(config.endpoint);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "эндпоинт не задан";
+  }
+}
+
+/**
  * Normalizes what users paste as "the store" into the permanent
  * `*.myshopify.com` host: a bare handle (`my-store`), the full host, or a URL
  * with scheme, path or trailing slash all collapse to `my-store.myshopify.com`.
@@ -120,9 +137,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ShopifyAdminCo
 
   // The override replaces the whole endpoint, version included, so a mock
   // server can be pointed at directly; otherwise the domain + version build it.
+  //
+  // It is validated rather than trusted: an unchecked value is taken verbatim
+  // as the endpoint, satisfies hasCredentials and then reaches both the startup
+  // line on stderr and the error text the model reads — so a secret pasted into
+  // this slot would be printed twice. As everywhere here, the message describes
+  // the accepted shape and never echoes what was rejected.
+  const apiBaseRaw = (env.SHOPIFY_API_BASE ?? "").trim();
+  let apiBase: string | undefined;
+  if (apiBaseRaw) {
+    const badApiBase =
+      "SHOPIFY_API_BASE должен быть полным URL GraphQL-эндпоинта по схеме http или https, например " +
+      "https://my-store.myshopify.com/admin/api/2026-01/graphql.json.";
+    let parsed: URL;
+    try {
+      parsed = new URL(apiBaseRaw);
+    } catch {
+      die(badApiBase, "invalid_api_base");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") die(badApiBase, "invalid_api_base");
+    apiBase = parsed.toString();
+  }
+
   const endpoint =
-    env.SHOPIFY_API_BASE ||
-    (storeDomain ? `https://${storeDomain}/admin/api/${apiVersion}/graphql.json` : undefined);
+    apiBase ?? (storeDomain ? `https://${storeDomain}/admin/api/${apiVersion}/graphql.json` : undefined);
 
   return {
     storeDomain,

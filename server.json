@@ -38,7 +38,7 @@
         },
         {
           "name": "SHOPIFY_API_BASE",
-          "description": "Full GraphQL endpoint override, replacing host and version (e.g. a local mock).",
+          "description": "Full http/https URL of the GraphQL endpoint, replacing host and version (e.g. a local mock).",
           "isRequired": false
         },
         {

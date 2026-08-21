@@ -14,7 +14,7 @@ export function registerCustomerTools(server: McpServer, client: ShopifyAdminCli
       title: "Список клиентов",
       annotations: READ_ONLY,
       description:
-        'Возвращает страницу клиентов (имя, email, телефон, число заказов, потраченная сумма, город) плюс общий count. Пагинация курсорная: hasNextPage/endCursor в ответе, следующий вызов передаёт endCursor в after. query — строка поиска Shopify: "email:ivan@example.com", "phone:+79001234567", "state:enabled", "created_at:>=2026-01-01". Клиентов не создаёт и не меняет — записи с персональными данными изменяются только через graphql_request. Нужен scope read_customers.',
+        'Возвращает страницу клиентов (имя, email, телефон, число заказов, потраченная сумма, город) плюс count — число клиентов под тем же фильтром. Пагинация курсорная: hasNextPage/endCursor в ответе, следующий вызов передаёт endCursor в after. query — строка поиска Shopify: "email:ivan@example.com", "phone:+79001234567", "state:enabled", "created_at:>=2026-01-01". Клиентов не создаёт и не меняет — записи с персональными данными изменяются только через graphql_request. Нужен scope read_customers.',
       inputSchema: {
         first: pageSize().optional().describe("Размер страницы, 1..250. По умолчанию 20."),
         after: cursor().optional().describe("endCursor предыдущей страницы — продолжить с него."),

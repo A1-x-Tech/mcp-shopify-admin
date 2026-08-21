@@ -25,10 +25,14 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   degraded and the client raises `CredentialsError` (lives in `types.ts`) at call time.
   `ConfigError` (with a `reason` code) is reserved for malformed values —
   `invalid_store_domain` (only `*.myshopify.com` hosts: silently sending the token to a foreign
-  host is how tokens leak; a bare handle or pasted URL normalizes cleanly) and
-  `invalid_api_version` — and is caught by `loadConfigOrDegraded` in `index.ts`. Optional
-  `SHOPIFY_API_VERSION`, `SHOPIFY_TIMEOUT_MS`, `SHOPIFY_MAX_RETRIES`, `SHOPIFY_API_BASE` (full
-  endpoint override; also satisfies `hasCredentials` without a domain, for mocks).
+  host is how tokens leak; a bare handle or pasted URL normalizes cleanly), `invalid_api_version`
+  and `invalid_api_base` (must parse as an http/https URL) — and is caught by
+  `loadConfigOrDegraded` in `index.ts`, which keeps the message as `configProblem` on the degraded
+  config. `describeTarget(config)` is the only shape of the target that may be printed: the store
+  domain, else the endpoint reduced to origin + path, so nothing a URL may carry (a
+  `user:password@`, a token in the path) reaches stderr. Optional `SHOPIFY_API_VERSION`,
+  `SHOPIFY_TIMEOUT_MS`, `SHOPIFY_MAX_RETRIES`, `SHOPIFY_API_BASE` (full endpoint override; also
+  satisfies `hasCredentials` without a domain, for mocks).
 - `src/types.ts` — config, `CostInfo` (flattened `extensions.cost`),
   `ApiResponse<T> = {data, cost}`, `ConnectionPage<T>` (`{count, items, hasNextPage, endCursor}`),
   the enum tuples (`PRODUCT_STATUSES`, `ORDER_CANCEL_REASONS`, `INVENTORY_REASONS`, `GID_TYPES`)
@@ -36,14 +40,18 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   `CredentialsError`.
 - `src/client.ts` — the GraphQL documents (compact selections: the consumer is an LLM) and one
   transport. `send()` first rejects a missing credential with `CredentialsError` (before retries
-  and fetch — the message is the product: it names the variables and the needed restart), then
-  POSTs with an AbortController timeout that also covers reading the body, retries with backoff,
-  lifts `extensions.cost` into the envelope and turns GraphQL `errors` into `ShopifyAdminError`.
+  and fetch — the message is the product: it names the variables and the needed restart, or, when
+  `configProblem` is set, the malformed variable instead of the credentials), then POSTs with an
+  AbortController timeout that also covers reading the body, retries with backoff, lifts
+  `extensions.cost` into the envelope and turns GraphQL `errors` — and a 200 that carries no
+  `data` object — into `ShopifyAdminError`. `request()` also forwards an optional `operationName`.
   `mutate()` additionally turns a non-empty `userErrors` into `MutationError` (with `errorsKey`
   for renames: `orderCancel` → `orderCancelUserErrors`) and drops the empty field from clean
   results. Also holds the pre-flight validators: `toGid` (builds gids, refuses cross-type ones),
-  `isMutationDocument` (retry safety for `graphql_request`; unparseable counts as a mutation),
-  `throttleWaitSeconds` (bucket math), `normalizePageSize` (clamp into 1..250).
+  `isMutationDocument` (retry safety for `graphql_request`, over `firstOperationKind` — a walk
+  that skips comments, strings and `(…)` to find the first *executable* operation past any
+  fragment definitions; unparseable counts as a mutation), `throttleWaitSeconds` (bucket math),
+  `normalizePageSize` (clamp into 1..250).
 - `src/tools/*.ts` — `shop`, `products`, `orders`, `customers`, `inventory`, `discounts`, `raw`;
   each exports one `register*Tools(server, client)`. `tools/util.ts` — `ok`/`fail`, the
   annotation presets and the shared zod schema **factories**. `tools/harness.ts` — the fake
@@ -57,7 +65,7 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
 - `src/telemetry.ts` — anonymous usage pings (ids/names/versions only, never data or arguments;
   fire-and-forget, must never block or throw; opt-out `ASKADS_TELEMETRY=0`). Reasons are a closed
   vocabulary (`missing_store_domain`, `missing_access_token`, `invalid_store_domain`,
-  `invalid_api_version`) — never a variable's name or value.
+  `invalid_api_version`, `invalid_api_base`) — never a variable's name or value.
 
 ## Conventions (do not break)
 
@@ -68,21 +76,33 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   prefix in `instructions`) and `tools/list`, and let every tool call fail with
   `CredentialsError` — its message names the variables to set and says to restart, because
   credentials come only from the environment (there are no login tools). A malformed value
-  degrades the same way. `config.test.ts`, `client.test.ts` and `test/dist-smoke.test.js` pin
+  degrades the same way, but the call-time message then names **the variable that actually
+  broke** (carried as `configProblem`) instead of the two credential variables the operator
+  usually set correctly. `config.test.ts`, `client.test.ts` and `test/dist-smoke.test.js` pin
   this.
 - **Credential failures are not transport failures.** `CredentialsError` is thrown before the
   retry/backoff branch and fetch itself in the client's `send()`. Pinned by "fetch must not be
   called" assertions in `client.test.ts`.
 - **The store is config, never an argument.** No tool takes a store or token; the endpoint is
   built once from the config, and `normalizeStoreDomain` refuses any host that is not
-  `*.myshopify.com` — the token must never travel to a foreign host.
+  `*.myshopify.com` — the token must never travel to a foreign host. `SHOPIFY_API_BASE` is
+  validated the same way (an http/https URL, else `ConfigError`) and is **never echoed**: it
+  reaches both stderr and the error text the model reads, so a secret pasted into that slot would
+  be printed twice. The startup line prints `describeTarget(config)`, not the endpoint, and every
+  config message names the accepted shape instead of the rejected value.
 - **HTTP 200 is not success.** Shopify answers 200 for refused mutations (`userErrors`) and for
   GraphQL-level errors (`errors`). Every wrapped mutation goes through `mutate()`; only
   `graphql_request` returns `userErrors` uninterpreted, and its description says to check them.
+  A 200 whose body is empty, truncated mid-stream or not GraphQL at all is an error too
+  («Ответ Shopify не содержит объект data»), never a successful call with empty data — otherwise
+  the agent reads "the shop has no products" where the answer simply never arrived.
 - **Retries are asymmetric.** THROTTLED and HTTP 429 always repeat (the call was refused, not
   performed — the wait comes from the bucket math / `Retry-After`); 5xx and network errors
   repeat for queries only — a repeated mutation could apply twice. `graphql_request` derives
-  retry safety from `isMutationDocument`, and an unparseable document counts as a mutation.
+  retry safety from `isMutationDocument`, which decides the operation kind by **parsing** the
+  document, not by reading its first keyword: fragment definitions may legally precede the
+  operation they serve, so `fragment F on Product { … } mutation M { … }` is a mutation and must
+  not be repeated. An unparseable document counts as a mutation.
 - **Validate before spending cost.** Anything checkable offline (gid shape and type, page
   bounds, the discount percentage/amount XOR, quantity minimums, empty lists) is rejected
   client-side.
@@ -124,12 +144,16 @@ Before changing the tool registry, read [the MCP capability documentation contra
 
 ## Known gaps
 
-- Not yet exercised against a live store: the tool surface was written against the Admin API
-  docs and the pinned version's schema, but no end-to-end run has happened. Before the first
-  release, run `npm run smoke` against a development store and walk one mutation of each shape
-  (create_product → update_variant → set_inventory, create_basic_discount, cancel_order on a
-  test order, a `graphql_request` mutation) — Shopify renames mutation fields between versions,
-  and only a live call proves the documents.
+- Not yet exercised against a live store. The documents themselves are no longer in doubt: the
+  six shapes that Shopify renames most often — `productCreate(product:)`, `productUpdate`,
+  `productVariantsBulkUpdate(productId:, variants:)`,
+  `discountCodeBasicCreate(basicCodeDiscount:)`, the `inventorySetQuantities` input and
+  `Order.fulfillments` as a plain list — were cross-checked against the 2026-01 reference and
+  match it. What is still missing is a run against a real store: before the first release, run
+  `npm run smoke` against a development store and walk one mutation of each shape (create_product
+  → update_variant → set_inventory, create_basic_discount, cancel_order on a test order, a
+  `graphql_request` mutation) — scopes, plan limits and real data are what a schema check cannot
+  prove.
 - `list_discounts` lists the fields of the six common discount shapes; an exotic type still
   returns its `__typename` and id, nothing more. Extend the fragments if a real store shows more.
 - `ordersCount` / `customersCount` may be absent or capped on some plans; the page's `count`

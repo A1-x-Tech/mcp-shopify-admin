@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ShopifyAdminClient } from "./client.js";
-import { ConfigError, DEFAULT_API_VERSION, hasCredentials, loadConfig } from "./config.js";
+import { ConfigError, DEFAULT_API_VERSION, describeTarget, hasCredentials, loadConfig } from "./config.js";
 import { instrumentToolCalls, Telemetry } from "./telemetry.js";
 import type { ShopifyAdminConfig } from "./types.js";
 import { registerShopTools } from "./tools/shop.js";
@@ -87,8 +87,9 @@ function loadConfigOrDegraded(telemetry: Telemetry): {
     return {
       // No endpoint on purpose: with the domain possibly being the malformed
       // value, there is no host left to trust — and no request goes out anyway,
-      // credentials are gone.
-      config: { apiVersion: DEFAULT_API_VERSION },
+      // credentials are gone. `configProblem` rides along so a tool call can
+      // report the variable that actually broke rather than the credentials.
+      config: { apiVersion: DEFAULT_API_VERSION, configProblem: err.message },
       problem: err,
     };
   }
@@ -153,7 +154,9 @@ async function main(): Promise<void> {
   await server.connect(transport);
   console.error(
     connected
-      ? `mcp-shopify-admin работает через stdio (магазин ${config.storeDomain ?? config.endpoint}, API ${config.apiVersion})`
+      ? // describeTarget, never the raw endpoint: this line lands in the host's
+        // log file, and a URL may carry credentials of its own.
+        `mcp-shopify-admin работает через stdio (магазин ${describeTarget(config)}, API ${config.apiVersion})`
       : "mcp-shopify-admin работает через stdio (креденшелы не заданы — задайте SHOPIFY_STORE_DOMAIN " +
           "и SHOPIFY_ACCESS_TOKEN и перезапустите сервер)",
   );

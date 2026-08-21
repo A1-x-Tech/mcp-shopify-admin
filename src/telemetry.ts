@@ -58,7 +58,8 @@ export interface ClientInfo {
 /**
  * `server_start` fires after the MCP handshake of a configured install and
  * `tool_call` per invocation. `startup_failed` means "config unusable at load"
- * (a malformed value such as a foreign store domain); `unconfigured_start` is
+ * (a malformed value such as a foreign store domain, an unknown API version or
+ * an API base that is not a URL); `unconfigured_start` is
  * a degraded start — the server survives missing credentials and completes
  * the handshake, so this is the first event that can carry the client's name
  * for an install with no credentials yet.

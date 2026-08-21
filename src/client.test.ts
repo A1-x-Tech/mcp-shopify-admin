@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   backoffMs,
   DEFAULT_PAGE_SIZE,
+  firstOperationKind,
   isMutationDocument,
   MAX_PAGE_SIZE,
   normalizePageSize,
@@ -31,7 +32,7 @@ function config(overrides: Partial<ShopifyAdminConfig> = {}): ShopifyAdminConfig
 interface Recorded {
   url: string;
   headers: Record<string, string>;
-  body: { query: string; variables?: Record<string, unknown> };
+  body: { query: string; variables?: Record<string, unknown>; operationName?: string };
 }
 
 /** A queue-driven fetch: each call shifts the next scripted response. */
@@ -433,6 +434,115 @@ test("isMutationDocument reads the first operation, not vibes", () => {
   // Unparseable documents count as mutations: never guess "safe to repeat".
   assert.equal(isMutationDocument(""), true);
   assert.equal(isMutationDocument("???"), true);
+});
+
+/**
+ * Fragment definitions may legally precede the operation they serve. Reading
+ * only the document's first keyword classified those as queries and let a
+ * mutation into the 5xx retry loop — the double-write this asymmetry exists to
+ * prevent. Every case here starts with something that is not the operation.
+ */
+test("a mutation is still a mutation behind fragments, comments and strings", () => {
+  assert.equal(isMutationDocument("fragment PF on Product { id }\nmutation M { productCreate { product { ...PF } } }"), true);
+  assert.equal(
+    isMutationDocument("fragment A on P { id } fragment B on Q { id } mutation M { x { ...A ...B } }"),
+    true,
+    "several fragments in a row must not hide the mutation",
+  );
+  assert.equal(
+    isMutationDocument('# leading comment with the word query in it\nfragment F on P { id }\nmutation M { x }'),
+    true,
+  );
+  // A brace inside an argument list is not a selection set, so it must not be
+  // mistaken for the fragment's body.
+  assert.equal(isMutationDocument('fragment F on P @dir(if: {x: 1}) { id } mutation M { x { ...F } }'), true);
+  assert.equal(isMutationDocument('mutation M($in: Input = {a: 1}) { x }'), true);
+  // …and the same shapes on the query side stay retry-safe.
+  assert.equal(isMutationDocument("fragment PF on Product { id }\nquery Q { product { ...PF } }"), false);
+  assert.equal(isMutationDocument("fragment PF on Product { id }\n{ product { ...PF } }"), false);
+});
+
+test("firstOperationKind names the operation it found", () => {
+  assert.equal(firstOperationKind("query Q { x }"), "query");
+  assert.equal(firstOperationKind("{ x }"), "shorthand");
+  assert.equal(firstOperationKind("fragment F on P { id } mutation M { x }"), "mutation");
+  assert.equal(firstOperationKind("subscription S { x }"), "subscription");
+  assert.equal(firstOperationKind("   "), "unknown");
+});
+
+test("a fragment-first mutation is NOT retried on 5xx", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    config(),
+    scriptedFetch(
+      [new Response("boom", { status: 502 }), new Response("boom", { status: 502 })],
+      recorded,
+    ),
+  );
+  await assert.rejects(
+    client.request("fragment PF on Product { id }\nmutation M { productCreate { product { ...PF } } }"),
+    (err: unknown) => err instanceof ShopifyAdminError && err.status === 502,
+  );
+  assert.equal(recorded.length, 1, "a mutation behind a fragment must not be repeated — it may have committed");
+});
+
+test("operationName is forwarded so a multi-operation document can pick one", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(config(), scriptedFetch([gqlOk({ shop: {} }), gqlOk({ shop: {} })], recorded));
+  await client.request("query A { shop { name } } query B { shop { id } }", undefined, "B");
+  assert.equal(recorded[0].body.operationName, "B");
+  // Omitted, it must not appear in the body at all rather than ride as null.
+  await client.request("query { shop { name } }");
+  assert.equal("operationName" in recorded[1].body, false);
+});
+
+test("listCustomers filters its count the same way the page is filtered", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    config(),
+    scriptedFetch([gqlOk({ customersCount: { count: 1 }, customers: { nodes: [] } })], recorded),
+  );
+  await client.listCustomers({ query: "email:ivan@example.com" });
+  // Without the argument the count is the store-wide total, reported beside a
+  // filtered page — a number the agent reads as "matches" and misreports.
+  assert.match(recorded[0].body.query, /customersCount\(query: \$query\)/);
+});
+
+test("a 200 that is empty, truncated or not GraphQL is an error, not an empty success", async () => {
+  for (const body of ["", '{"data":{"shop":{"na', '{"data":null}', "<html>502</html>", "[]"]) {
+    const client = new ShopifyAdminClient(
+      config({ maxRetries: 0 }),
+      scriptedFetch([new Response(body, { status: 200 })]),
+    );
+    await assert.rejects(
+      client.getShop(),
+      (err: unknown) => {
+        assert.ok(err instanceof ShopifyAdminError, `${JSON.stringify(body)} must not read as success`);
+        assert.match(err.message, /не содержит объект data/);
+        return true;
+      },
+      `body ${JSON.stringify(body)}`,
+    );
+  }
+});
+
+test("a degraded config reports the variable that actually broke, not the credentials", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    // What index.ts hands over after catching a ConfigError: no endpoint, no
+    // token, and the problem that caused it.
+    { apiVersion: "2026-01", configProblem: 'SHOPIFY_API_VERSION должен быть квартальным релизом.' },
+    scriptedFetch([], recorded),
+  );
+  await assert.rejects(client.getShop(), (err: unknown) => {
+    assert.ok(err instanceof CredentialsError);
+    assert.match(err.message, /SHOPIFY_API_VERSION/);
+    assert.match(err.message, /перезапустите сервер/);
+    // Naming the two credentials here sends the operator to fix what is already correct.
+    assert.equal(/Требуются SHOPIFY_STORE_DOMAIN/.test(err.message), false);
+    return true;
+  });
+  assert.equal(recorded.length, 0);
 });
 
 test("throttleWaitSeconds does the bucket math and degrades to undefined", () => {

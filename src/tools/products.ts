@@ -74,7 +74,7 @@ export function registerProductTools(server: McpServer, client: ShopifyAdminClie
       title: "Создать товар",
       annotations: CREATE,
       description:
-        'Создаёт товар и возвращает его с дефолтным вариантом, который Shopify добавляет сам. Статус по умолчанию у Shopify — ACTIVE, то есть товар сразу виден на витрине: для черновика нужно передать status: "DRAFT". Цена задаётся следующим вызовом update_variant по id созданного дефолтного варианта (он есть в ответе). Варианты, изображения и остатки этот инструмент не создаёт. Повторный вызов создаст второй такой же товар. Провал приходит как ошибка с userErrors — HTTP-статус Shopify всегда 200.',
+        'Создаёт товар и возвращает его с дефолтным вариантом, который Shopify добавляет сам. Товар НЕ появляется на витрине: созданные через API товары не опубликованы ни в одном канале продаж, и публикация делается отдельной операцией publishablePublish (её здесь нет — только через graphql_request). Статус по умолчанию — ACTIVE, но это не публикация: status: "DRAFT" дополнительно помечает товар черновиком. Цена задаётся следующим вызовом update_variant по id созданного дефолтного варианта (он есть в ответе). Варианты, изображения и остатки этот инструмент не создаёт. Повторный вызов создаст второй такой же товар. Провал приходит как ошибка с userErrors — HTTP-статус Shopify всегда 200.',
       inputSchema: {
         title: z.string().min(1).describe("Название товара."),
         descriptionHtml: z.string().optional().describe("Описание в HTML."),
@@ -83,7 +83,9 @@ export function registerProductTools(server: McpServer, client: ShopifyAdminClie
         tags: z.array(z.string()).optional().describe("Теги."),
         status: productStatusEnum()
           .optional()
-          .describe("ACTIVE (по умолчанию, сразу на витрине) | DRAFT (черновик) | ARCHIVED."),
+          .describe(
+            "ACTIVE (по умолчанию; товар всё равно не опубликован в каналах продаж) | DRAFT (черновик) | ARCHIVED.",
+          ),
       },
     },
     async ({ title, descriptionHtml, vendor, productType, tags, status }) => {

@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ConfigError, DEFAULT_API_VERSION, hasCredentials, loadConfig, normalizeStoreDomain } from "./config.js";
+import {
+  ConfigError,
+  DEFAULT_API_VERSION,
+  describeTarget,
+  hasCredentials,
+  loadConfig,
+  normalizeStoreDomain,
+} from "./config.js";
 
 /**
  * The reason codes below (`invalid_*`) are the vocabulary the dashboard groups
@@ -131,6 +138,35 @@ test("SHOPIFY_API_BASE overrides the whole endpoint and satisfies hasCredentials
   } as NodeJS.ProcessEnv);
   assert.equal(config.endpoint, "http://localhost:9000/graphql.json");
   assert.equal(hasCredentials(config), true, "a mock endpoint needs no store domain");
+});
+
+/**
+ * The third slot used to be taken verbatim: a token pasted here became the
+ * endpoint, satisfied hasCredentials, and was then printed to stderr on every
+ * start and echoed inside the error text the model reads.
+ */
+test("SHOPIFY_API_BASE must be an http(s) URL, and its value is never echoed", () => {
+  const secret = "shpat_pasted-in-the-wrong-slot";
+  for (const bad of [secret, "localhost:9000", "ftp://example.com/graphql.json", "/admin/api/graphql.json"]) {
+    assert.equal(reasonOf({ ...FULL, SHOPIFY_API_BASE: bad }), "invalid_api_base", bad);
+  }
+  const message = errorOf({ ...FULL, SHOPIFY_API_BASE: secret }).message;
+  assert.equal(message.includes(secret), false, "the rejected endpoint must not be echoed");
+  assert.match(message, /SHOPIFY_API_BASE/);
+});
+
+test("describeTarget never leaks credentials embedded in the endpoint", () => {
+  // A URL may legally carry user:password@; this string reaches the host's log.
+  const config = loadConfig({
+    SHOPIFY_ACCESS_TOKEN: "shpat_x",
+    SHOPIFY_API_BASE: "https://apiuser:s3cr3t@127.0.0.1:9000/graphql.json",
+  } as NodeJS.ProcessEnv);
+  const shown = describeTarget(config);
+  assert.equal(shown.includes("s3cr3t"), false, "the password must not reach stderr");
+  assert.equal(shown.includes("apiuser"), false);
+  assert.equal(shown, "https://127.0.0.1:9000/graphql.json");
+  // With a store domain configured it stays the friendly name.
+  assert.equal(describeTarget(loadConfig(FULL as NodeJS.ProcessEnv)), "my-store.myshopify.com");
 });
 
 test("numeric overrides are honored; zero disables retries", () => {
