@@ -1,0 +1,59 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.A1-x-Tech/mcp-shopify-admin",
+  "title": "Shopify Admin MCP",
+  "description": "MCP server for the Shopify Admin API: products, orders, customers, inventory, discounts.",
+  "websiteUrl": "https://github.com/A1-x-Tech/mcp-shopify-admin#readme",
+  "repository": {
+    "url": "https://github.com/A1-x-Tech/mcp-shopify-admin",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mcp-shopify-admin",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SHOPIFY_STORE_DOMAIN",
+          "description": "Permanent store host, e.g. my-store.myshopify.com (a bare store name works too).",
+          "isRequired": true
+        },
+        {
+          "name": "SHOPIFY_ACCESS_TOKEN",
+          "description": "Admin API access token of your custom app (shpat_…). Treat it as a secret.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "SHOPIFY_API_VERSION",
+          "description": "Admin API version: a quarterly YYYY-MM release or unstable.",
+          "isRequired": false,
+          "default": "2026-01"
+        },
+        {
+          "name": "SHOPIFY_API_BASE",
+          "description": "Full GraphQL endpoint override, replacing host and version (e.g. a local mock).",
+          "isRequired": false
+        },
+        {
+          "name": "SHOPIFY_TIMEOUT_MS",
+          "description": "Per-request timeout in milliseconds.",
+          "isRequired": false,
+          "default": "30000"
+        },
+        {
+          "name": "SHOPIFY_MAX_RETRIES",
+          "description": "Retries on THROTTLED/429 (always) and on 5xx / network errors for reads only.",
+          "isRequired": false,
+          "default": "4"
+        }
+      ]
+    }
+  ]
+}
