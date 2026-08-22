@@ -46,12 +46,12 @@ const INSTRUCTIONS =
 const UNCONFIGURED_PREFIX =
   "ВНИМАНИЕ: Shopify ещё не подключён — не заданы переменные окружения SHOPIFY_STORE_DOMAIN и/или " +
   "SHOPIFY_ACCESS_TOKEN, поэтому любой вызов инструмента вернёт ошибку. Подключиться из диалога " +
-  "нельзя: оператор должен в админке магазина создать кастомное приложение (Settings → Apps and " +
-  "sales channels → Develop apps), выдать ему нужные Admin API access scopes (например " +
-  "read_products, write_products, read_orders, read_customers), установить приложение и взять его " +
-  "Admin API access token (начинается с shpat_; показывается один раз при установке), затем " +
-  "задать SHOPIFY_STORE_DOMAIN (домен вида my-store.myshopify.com) и SHOPIFY_ACCESS_TOKEN в " +
-  "конфигурации MCP-клиента и перезапустить сервер — переменные читаются только при старте. ";
+  "нельзя: оператор должен создать и установить приложение через Shopify Dev Dashboard или Shopify CLI, " +
+  "выдать ему нужные Admin API access scopes (например read_products, write_products, read_orders, " +
+  "read_customers), получить Admin API access token через подходящий OAuth/client-credentials flow, " +
+  "а затем задать SHOPIFY_STORE_DOMAIN (домен вида my-store.myshopify.com) и " +
+  "SHOPIFY_ACCESS_TOKEN в конфигурации MCP-клиента и перезапустить сервер. Сервер не получает и не " +
+  "обновляет истекающие токены сам — переменные читаются только при старте. ";
 
 /** Reads the package version so the server reports its real version to MCP clients. */
 function readVersion(): string {

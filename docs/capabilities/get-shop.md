@@ -1,49 +1,47 @@
-# Shopify Admin: Данные магазина — MCP-инструмент (tool)
+# Shopify Admin: Shop data — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает магазин, к которому привязан сервер: название, myshopifyDomain, основной домен витрины, валюту, тариф (plan), контактный email, часовой пояс, число товаров и список локаций.
+**MCP tool for Shopify:** Returns the shop identity and operating context that other tools use: name, domains, currency, plan, timezone, product count, and locations.
 
-Техническое имя: `get_shop`
+Technical name: `get_shop`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу посмотреть данные магазина.
+> I want to see my Shopify store details.
 
-Возвращает магазин, к которому привязан сервер: название, myshopifyDomain, основной домен витрины, валюту, тариф (plan), контактный email, часовой пояс, число товаров и список локаций (id локаций нужны инструменту set_inventory).
+It gives the assistant a reliable starting point for understanding which store the server is connected to and which locations are available.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Данные магазина» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it before inventory work, when checking the active connection, or whenever you need shop metadata without opening the Shopify admin manually. The operation runs only when the AI application calls it.
 
-## Что нужно передать
+## What to provide
 
-Параметры не нужны.
+No arguments.
 
-## Что вернёт
+## What it returns
 
-Возвращает название магазина, myshopifyDomain, основной домен витрины, валюту, тариф (plan), контактный email, часовой пояс, число товаров и список локаций. Как и у всех инструментов сервера, в ответе есть cost — состояние cost-бакета GraphQL: actualQueryCost (сколько стоил запрос), currentlyAvailable/maximumAvailable (остаток и размер бакета), restoreRate (восстановление очков в секунду).
+The shop name, `myshopifyDomain`, storefront domain, currency, plan, contact email, timezone, `productsCount`, and up to 10 locations. The response also carries the GraphQL cost state: `actualQueryCost`, `currentlyAvailable`, `maximumAvailable`, and `restoreRate`.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Посмотреть данные магазина в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Show the Shopify store details and its locations.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Аргументов не принимает — магазин задан в переменной окружения SHOPIFY_STORE_DOMAIN и не выбирается для отдельного вызова; ни один инструмент сервера магазин не переопределяет.
+The store is fixed by `SHOPIFY_STORE_DOMAIN`; this tool cannot select another store. `ACCESS_DENIED` means the token is missing a scope, not that the token is necessarily invalid. The tool needs only a valid Admin API token and the scopes required by the fields Shopify returns.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [List locations](./list-locations.md) — `list_locations`
+- [List products](./list-products.md) — `list_products`
 
-- [Список локаций](./list-locations.md) — `list_locations`
-- [Список товаров](./list-products.md) — `list_products`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Магазин
-- **Источник описания:** регистрация `get_shop` в `src/tools/shop.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Shop
+- **Source:** `registerTool("get_shop")` in `src/tools/shop.ts`
+- [All capabilities](./index.md)

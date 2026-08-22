@@ -1,33 +1,33 @@
-# Контракт документации MCP-возможностей
+# MCP capability documentation contract
 
-Этот контракт задаёт единый формат публичных страниц для методов, которые MCP-сервер предоставляет AI-приложениям. Каноническая папка — `docs/capabilities/`; она подходит для репозиториев со скилами, инструментами и другими пользовательскими возможностями.
+This contract defines the public format for the methods an MCP server exposes to AI applications. The canonical folder is `docs/capabilities/`; it works for repositories with tools, skills, and other user-facing capabilities.
 
-## Когда применять
+## When to apply it
 
-При добавлении, переименовании или удалении зарегистрированного MCP-инструмента обновите его страницу, индекс и проверку покрытия в том же PR. Работа завершена, когда каждому инструменту соответствует ровно одна страница, воздействие совпадает с runtime-аннотациями, а все локальные ссылки открываются.
+When a registered MCP tool is added, renamed, or removed, update its page, the index, and the coverage test in the same change. The work is complete when every tool has exactly one page, the documented impact matches runtime annotations, and every local link resolves.
 
-## Как писать страницу
+## How to write a page
 
-1. Назовите страницу по задаче пользователя, а в H1 и первом абзаце используйте точную категорию «MCP-инструмент (tool)».
-2. Сформулируйте переход пользователя одной строкой `> Я хочу + инфинитив`. Методология помогает автору выделить задачу и ожидаемый результат, а публичный текст остаётся на обычном языке пользователя.
-3. Объясните момент применения, обязательные входы, результат, ограничения и точное воздействие на данные.
-4. Разделяйте чтение, изменение и опасные операции. Создание, подтверждение, публикация, перевод денег, отмена и удаление не должны выглядеть как чтение.
-5. Сверяйте факты по приоритету: регистрация инструмента и runtime-аннотации → клиент и тесты → `docs/TOOLS.md` → README. Неподтверждённые обещания не публикуйте.
+1. Name the page after the user's task; use the exact category phrase **MCP tool** in the H1 and opening paragraph.
+2. State the user's transition in one line beginning `> I want to`.
+3. Explain when to use the tool, required inputs, result, limitations, and exact impact on data.
+4. Separate reads, writes, and dangerous operations. Creation, confirmation, publication, payment, cancellation, and deletion must not look like reading.
+5. Verify facts in this order: tool registration and runtime annotations → client and tests → `docs/TOOLS.md` → README. Do not publish unsupported promises.
 
-## Обязательные разделы
+## Required sections
 
-- «Какую задачу решает»
-- «Когда использовать»
-- «Что нужно передать»
-- «Что вернёт»
-- «Что изменится в продукте»
-- «Пример запроса»
-- «Возможные ошибки и ограничения»
-- «Связанные MCP-инструменты»
-- «Технические сведения»
+- “What problem it solves”
+- “When to use it”
+- “What to provide”
+- “What it returns”
+- “What changes in Shopify”
+- “Example request”
+- “Errors and limitations”
+- “Related MCP tools”
+- “Technical details”
 
-## Публикация в вебе
+## Web publication
 
-Markdown из `docs/capabilities/` — единственный источник текста: HTML строится из него без отдельной копии. Call-to-action добавляется шаблоном сайта после содержательной части и не встраивается в Markdown. Для каждой HTML-страницы веб-слой предоставляет эквивалентный маршрут `.md`, объявляет его через `Link: rel="alternate"; type="text/markdown"` и поддерживает `Accept: text/markdown` с корректным сравнением q-values. Обе репрезентации возвращают `Vary: Accept` и взаимные `Link`-заголовки; выбор формата не зависит от User-Agent.
+Markdown in `docs/capabilities/` is the single source for public capability pages. HTML is generated from it without a second copy. The web layer should expose an equivalent `.md` route, advertise it with `Link: rel="alternate"; type="text/markdown"`, support `Accept: text/markdown` with correct q-value comparison, and return `Vary: Accept` plus mutual `Link` headers for both formats.
 
-Индекс сайта и `llms.txt` должны ссылаться на каталог как на отобранную коллекцию, а не копировать текст страниц. Так поисковые системы, люди и AI-клиенты получают один и тот же материал без расхождений.
+The site index and `llms.txt` should link to the catalog as a selected collection rather than copying page text. This keeps one source for search engines, people, and AI clients.

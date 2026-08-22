@@ -88,14 +88,14 @@ export function fail(err: unknown): CallToolResult {
 function authHint(err: ShopifyAdminError): string | undefined {
   if (err.code === "ACCESS_DENIED") {
     return (
-      "токен действителен, но у приложения нет нужного access scope: выдайте его в админке " +
-      "(Settings → Apps and sales channels → Develop apps → приложение → Configuration), " +
-      "переустановите приложение и обновите SHOPIFY_ACCESS_TOKEN — смена scopes выпускает новый токен"
+      "токен действителен, но у приложения нет нужного access scope: добавьте scope в конфигурации " +
+      "приложения, установите новую версию или переустановите приложение по правилам вашего Shopify " +
+      "auth flow, затем обновите SHOPIFY_ACCESS_TOKEN"
     );
   }
   switch (err.status) {
     case 401:
-      return "токен отклонён: стоит проверить SHOPIFY_ACCESS_TOKEN (Admin API access token кастомного приложения, начинается с shpat_)";
+      return "токен отклонён: стоит проверить SHOPIFY_ACCESS_TOKEN (готовый Admin API access token Shopify)";
     case 402:
       return "магазин заморожен из-за проблемы с оплатой тарифа Shopify — API вернётся после оплаты";
     case 404:

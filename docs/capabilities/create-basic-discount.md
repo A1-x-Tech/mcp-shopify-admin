@@ -1,56 +1,50 @@
-# Shopify Admin: Создать промокод — MCP-инструмент (tool)
+# Shopify Admin: Create a basic discount — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Создаёт базовую промокодную скидку: один код, процент (percentage, доля 0..1: 0.2 = −20%) ИЛИ фиксированная сумма (amount в валюте магазина) — ровно одно из двух, для всех клиентов на все товары.
+**MCP tool for Shopify:** Creates one basic discount code for all customers and all products, using either a percentage or a fixed amount.
 
-Техническое имя: `create_basic_discount`
+Technical name: `create_basic_discount`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу создать промокод.
+> I want to create a basic discount code in Shopify.
 
-Создаёт базовую промокодную скидку: один код, процент (percentage, доля 0..1: 0.2 = −20%) ИЛИ фиксированная сумма (amount в валюте магазина) — ровно одно из двух, для всех клиентов на все товары.
+Use it for a simple store-wide code when one code, one value, and one validity period are enough.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Создать промокод» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it only after checking the proposed code, value, dates, and limits. The operation creates real Shopify data.
 
-## Что нужно передать
+## What to provide
 
-- `title` — **обязательно**. Внутреннее название скидки (видно в админке).
-- `code` — **обязательно**. Промокод, который вводит покупатель, например BLACKFRIDAY. Уникален в магазине.
-- `percentage` — **необязательно**. Доля скидки 0..1 (0.2 = −20%). Ровно одно из percentage/amount.
-- `amount` — **необязательно**. Фиксированная сумма скидки в валюте магазина, например "500.00".
-- `startsAt` — **необязательно**. Начало действия, ISO-8601. По умолчанию — немедленно.
-- `endsAt` — **необязательно**. Конец действия, ISO-8601. Без него скидка бессрочная.
-- `usageLimit` — **необязательно**. Общий лимит применений кода.
-- `appliesOncePerCustomer` — **необязательно**. Не больше одного применения на клиента.
+- `title` — required internal discount title.
+- `code` — required unique customer-facing code.
+- Exactly one of optional `percentage` (0..1; `0.2` means 20%) or `amount` (decimal string in the shop currency).
+- Optional `startsAt` (immediate by default), `endsAt`, `usageLimit`, and `appliesOncePerCustomer`.
 
-## Что вернёт
+## What it returns
 
-Возвращает созданную промокодную скидку. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The created discount and the GraphQL cost state.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент изменяет реальные данные Shopify так, как описано выше. Автоматического отката сервер не обещает.
+A new code discount is created for all customers and products. There is no automatic rollback.
 
-## Пример запроса
+## Example request
 
-> Создать промокод в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Prepare a 20% discount code SUMMER from September 1 through September 14, with a limit of 100 uses.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Передаётся ровно одно из percentage (доля 0..1) и amount — вместе или ни одного нельзя. startsAt по умолчанию — сейчас, то есть код начинает действовать немедленно; отложенный запуск задаётся явным startsAt. usageLimit — общий лимит применений, appliesOncePerCustomer — не больше раза на клиента. Скидки на отдельные коллекции/сегменты, BXGY и бесплатная доставка здесь не создаются (graphql_request), выключение скидки — тоже. Повторный вызов с тем же кодом провалится userErrors: код должен быть уникален (HTTP-статус мутации всегда 200, вердикт лежит в userErrors, и инструмент превращает его в ошибку). Нужен scope write_discounts.
+Exactly one of `percentage` and `amount` is required. The code must be unique. Targeted discounts, BXGY, free shipping, and deactivation require `graphql_request`. Scope: `write_discounts`. Shopify mutation failures are surfaced from `userErrors`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [List discounts](./list-discounts.md) — `list_discounts`
+- [Arbitrary GraphQL request](./graphql-request.md) — `graphql_request`
 
-- [Список скидок](./list-discounts.md) — `list_discounts`
-- [Произвольный GraphQL-запрос](./graphql-request.md) — `graphql_request`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** изменяет данные
-- **Группа:** Скидки
-- **Источник описания:** регистрация `create_basic_discount` в `src/tools/discounts.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** changes data
+- **Group:** Discounts
+- **Source:** `registerTool("create_basic_discount")` in `src/tools/discounts.ts`
+- [All capabilities](./index.md)

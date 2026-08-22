@@ -30,11 +30,11 @@ export const DEFAULT_USER_AGENT = "mcp-shopify-admin";
 const MISSING_STORE_DOMAIN_TEXT =
   "Требуется SHOPIFY_STORE_DOMAIN — постоянный домен магазина вида my-store.myshopify.com.";
 const MISSING_ACCESS_TOKEN_TEXT =
-  "Требуется SHOPIFY_ACCESS_TOKEN — Admin API access token кастомного приложения (shpat_…).";
+  "Требуется SHOPIFY_ACCESS_TOKEN — готовый Admin API access token Shopify (например, shpat_…). Сервер не получает и не обновляет токены сам.";
 
 /** The same variables as list items for the combined «Требуются X и Y» message. */
 const LISTED_STORE_DOMAIN = "SHOPIFY_STORE_DOMAIN (постоянный домен магазина my-store.myshopify.com)";
-const LISTED_ACCESS_TOKEN = "SHOPIFY_ACCESS_TOKEN (Admin API access token кастомного приложения)";
+const LISTED_ACCESS_TOKEN = "SHOPIFY_ACCESS_TOKEN (готовый Admin API access token Shopify)";
 
 /**
  * The full CredentialsError message for this config, or undefined when every

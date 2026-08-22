@@ -3,8 +3,8 @@
  *
  * The server talks to a single endpoint —
  * `https://{store}.myshopify.com/admin/api/{version}/graphql.json` — with a
- * static `X-Shopify-Access-Token` (the Admin API access token of a custom
- * app; there is no OAuth exchange). The store comes from the config, never
+ * static `X-Shopify-Access-Token` (a ready-to-use Admin API access token; the
+ * server does not perform the OAuth exchange or refresh the token). The store comes from the config, never
  * from a tool argument.
  *
  * Shopify meters this API in a cost bucket, not in requests: every response
@@ -21,7 +21,7 @@ export interface ShopifyAdminConfig {
    * tool call answers with {@link CredentialsError} instead.
    */
   storeDomain?: string;
-  /** Admin API access token of the custom app (`shpat_…`). Treated as a secret. Optional, as above. */
+  /** Ready-to-use Shopify Admin API access token. Treated as a secret. Optional, as above. */
   accessToken?: string;
   /** Admin API version, `YYYY-MM` (quarterly) or `unstable`. */
   apiVersion: string;

@@ -1,50 +1,50 @@
-# Shopify Admin: Произвольный GraphQL-запрос — MCP-инструмент (tool)
+# Shopify Admin: Arbitrary GraphQL request — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Выполняет произвольный GraphQL-документ против Admin API магазина — для всего, чему нет отдельного инструмента (метаполя, медиа, коллекции, вебхуки, сегменты, bulk-операции).
+**MCP tool for Shopify:** Sends an arbitrary GraphQL document to the Admin API for capabilities that do not have a dedicated tool.
 
-Техническое имя: `graphql_request`
+Technical name: `graphql_request`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу выполнить произвольный GraphQL-запрос.
+> I want to use a Shopify Admin API capability that has no dedicated MCP tool.
 
-Выполняет произвольный GraphQL-документ против Admin API магазина — для всего, чему нет отдельного инструмента (метаполя, медиа, коллекции, вебхуки, сегменты, bulk-операции). Токен, магазин и версию API подставляет сервер; переменные — через variables.
+Use it for metafields, media, collections, webhooks, segments, bulk operations, targeted discounts, publication, and other GraphQL operations not covered by the focused tools.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Произвольный GraphQL-запрос» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it only when the document, variables, operation, required scopes, and possible data changes are understood. It is the broadest and most dangerous server capability.
 
-## Что нужно передать
+## What to provide
 
-- `query` — **обязательно**. GraphQL-документ, например "query { shop { name } }" или мутация.
-- `variables` — **необязательно**. Переменные документа, объект JSON.
-- `operationName` — **необязательно**. Имя операции; обязательно, если документ содержит больше одной операции — без него сервер GraphQL не знает, какую выполнять.
+- `query` — required GraphQL document.
+- `variables` — optional variables object.
+- `operationName` — optional unless the document has more than one operation.
 
-## Что вернёт
+## What it returns
 
-Возвращает ответ Admin API как есть, включая data с возможным полем userErrors внутри. Стоимость запроса видна в cost ответа — состоянии cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The Shopify GraphQL payload as-is, together with the cost state. `userErrors` are not normalized; the caller must inspect them.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Исходный код помечает весь вызов «Произвольный GraphQL-запрос» как опасный, потому что документ может быть мутацией; query безопасен. Конкретное воздействие зависит от переданного документа; перед вызовом проверьте параметры и обратимость результата.
+A query reads data, but a mutation can create, update, publish, cancel, or delete data depending on its document. The tool is marked destructive because the server cannot safely assume the document is read-only.
 
-## Пример запроса
+## Example request
 
-> Выполнить произвольный GraphQL-запрос в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их. Сначала покажи, какие данные изменятся, и дождись подтверждения.
+> Run this reviewed GraphQL query to return the first five product ids and titles.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-ВАЖНО: у мутаций Shopify HTTP 200 не значит успех — реальный вердикт в userErrors внутри data, и здесь он возвращается как есть, без интерпретации: поле userErrors нужно проверить самому. Ретраев для мутаций нет (повтор мог бы применить изменение дважды) — вид операции определяется разбором документа, а не первым словом в нём, поэтому мутация с фрагментом перед ней тоже не повторяется; THROTTLED повторяется сам после паузы. HTTP 200 с пустым, оборванным или не-GraphQL телом — это ошибка «Ответ Shopify не содержит объект data», а не успешный вызов с пустыми данными. Глубокие вложенные выборки стоят дорого по cost-бакету, а дороже 1000 очков запрос отклоняется валидатором Shopify. Магазин задан в SHOPIFY_STORE_DOMAIN и не выбирается вызовом.
+The server supplies the configured store, token, and API version. It detects the operation kind by parsing the document, so fragments before a mutation are handled safely; an unparseable document is treated as a mutation and is not replayed after 5xx or network errors. `operationName` is required for multiple operations. Shopify rejects documents costing more than 1,000 points.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get a product](./get-product.md) — `get_product`
+- [List discounts](./list-discounts.md) — `list_discounts`
+- [All tools](../TOOLS.md)
 
-Связанных специализированных инструментов в этой группе нет.
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** опасная операция
-- **Группа:** Технический доступ
-- **Источник описания:** регистрация `graphql_request` в `src/tools/raw.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** destructive operation
+- **Group:** Technical access
+- **Source:** `registerTool("graphql_request")` in `src/tools/raw.ts`
+- [All capabilities](./index.md)

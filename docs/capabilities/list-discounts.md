@@ -1,51 +1,48 @@
-# Shopify Admin: Список скидок — MCP-инструмент (tool)
+# Shopify Admin: List discounts — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает страницу скидок магазина — промокодных и автоматических: тип (__typename), название, статус, период действия, лимит использований, для кодовых — до 5 кодов и счётчик применений.
+**MCP tool for Shopify:** Returns automatic and code discounts with their types, status, dates, limits, codes, and usage counts.
 
-Техническое имя: `list_discounts`
+Technical name: `list_discounts`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу посмотреть список скидок.
+> I want to review the discounts in Shopify.
 
-Возвращает страницу скидок магазина — промокодных и автоматических: тип (__typename), название, статус, период действия, лимит использований, для кодовых — до 5 кодов и счётчик применений.
+Use it to audit active and inactive promotions or find an existing code before creating another one.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Список скидок» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it for discount reviews and planning. It never creates, updates, or disables a discount.
 
-## Что нужно передать
+## What to provide
 
-- `first` — **необязательно**. Размер страницы, 1..250. По умолчанию 20.
-- `after` — **необязательно**. endCursor предыдущей страницы — продолжить с него.
-- `query` — **необязательно**. Строка поиска Shopify: "status:active", "type:code", "title:BLACKFRIDAY".
+- Optional `first` page size and `after` cursor.
+- Optional Shopify `query` string.
 
-## Что вернёт
+## What it returns
 
-Возвращает страницу скидок с полями hasNextPage/endCursor. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Discount type, title, status, active period, usage limit, and for code discounts up to five codes and usage counts. The page also includes cursor data and the GraphQL cost state.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Посмотреть список скидок в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> List active and scheduled discounts with their codes, dates, and usage limits.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Пагинация курсорная (hasNextPage/endCursor → after), номера страницы у Shopify нет. query — строка поиска Shopify: "status:active", "type:code", "title:BLACKFRIDAY". Ничего не создаёт и не выключает. Нужен scope read_discounts.
+The page is cursor-paginated. Common discount shapes are expanded; an unfamiliar Shopify discount type may return only its typename and id. Scope: `read_discounts`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Create a basic discount](./create-basic-discount.md) — `create_basic_discount`
+- [Arbitrary GraphQL request](./graphql-request.md) — `graphql_request`
 
-- [Создать промокод](./create-basic-discount.md) — `create_basic_discount`
-- [Произвольный GraphQL-запрос](./graphql-request.md) — `graphql_request`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Скидки
-- **Источник описания:** регистрация `list_discounts` в `src/tools/discounts.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Discounts
+- **Source:** `registerTool("list_discounts")` in `src/tools/discounts.ts`
+- [All capabilities](./index.md)

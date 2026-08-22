@@ -1,51 +1,48 @@
-# Shopify Admin: Карточка товара — MCP-инструмент (tool)
+# Shopify Admin: Get a product — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает один товар целиком: описание (HTML), опции, до 100 вариантов с ценами, остатками, SKU и id inventoryItem (этот id нужен инструменту set_inventory).
+**MCP tool for Shopify:** Returns one product with its description, options, variants, prices, inventory quantities, SKU, barcode, and inventory item ids.
 
-Техническое имя: `get_product`
+Technical name: `get_product`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу открыть карточку товара.
+> I want to inspect one Shopify product in detail.
 
-Возвращает один товар целиком: описание (HTML), опции, до 100 вариантов с ценами, остатками, SKU и id inventoryItem (этот id нужен инструменту set_inventory).
+Use it when you need the exact product or variant ids required for price or inventory work.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Карточка товара» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it after finding a product with `list_products`, before changing variant prices or inventory, or when reviewing the complete product record.
 
-## Что нужно передать
+## What to provide
 
-- `id` — **обязательно**. Id товара: число или gid://shopify/Product/<id>.
+- `id` — required product id as a number or `gid://shopify/Product/<id>`.
 
-## Что вернёт
+## What it returns
 
-Возвращает товар с описанием (HTML), опциями и до 100 вариантами — у каждого цены, остатки, SKU и id inventoryItem. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The product's `descriptionHtml`, options, and up to 100 variants. Each variant includes price, `compareAtPrice`, inventory quantity, SKU, barcode, and `inventoryItem.id`. Media and metafields require `graphql_request`. The response also carries GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Открыть карточку товара в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Show the complete product record for product 8123456789, including variant inventory and SKUs.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Принимает числовой id или полный gid://shopify/Product/<id>. Несуществующий товар — это data: null, а не ошибка. Медиафайлы и метаполя не возвращает — за ними graphql_request.
+The id must identify a Product; a gid for another resource type is rejected before the request. A missing product is returned as `data: null`, not as a fabricated empty product. Scope: `read_products`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [List products](./list-products.md) — `list_products`
+- [Update variant prices](./update-variant.md) — `update_variant`
+- [Set inventory](./set-inventory.md) — `set_inventory`
 
-- [Список товаров](./list-products.md) — `list_products`
-- [Изменить товар](./update-product.md) — `update_product`
-- [Изменить цены варианта](./update-variant.md) — `update_variant`
-- [Задать остатки](./set-inventory.md) — `set_inventory`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Товары
-- **Источник описания:** регистрация `get_product` в `src/tools/products.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Products
+- **Source:** `registerTool("get_product")` in `src/tools/products.ts`
+- [All capabilities](./index.md)

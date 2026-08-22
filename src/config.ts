@@ -112,7 +112,7 @@ export function normalizeStoreDomain(raw: string): string {
  * index.ts catches it and degrades instead of exiting.
  *
  *   SHOPIFY_STORE_DOMAIN   my-store.myshopify.com (or the bare store name)
- *   SHOPIFY_ACCESS_TOKEN   Admin API access token of the custom app (shpat_…)
+ *   SHOPIFY_ACCESS_TOKEN   Ready-to-use Shopify Admin API access token
  *   SHOPIFY_API_VERSION    YYYY-MM quarterly release or unstable (default 2026-01)
  *   SHOPIFY_TIMEOUT_MS     per-request timeout (default 30000)
  *   SHOPIFY_MAX_RETRIES    retries for THROTTLED (always) and 5xx/network on reads (default 4)

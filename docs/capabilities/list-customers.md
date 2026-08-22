@@ -1,51 +1,49 @@
-# Shopify Admin: Список клиентов — MCP-инструмент (tool)
+# Shopify Admin: List customers — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает страницу клиентов (имя, email, телефон, число заказов, потраченная сумма, город) плюс count — число клиентов под тем же фильтром.
+**MCP tool for Shopify:** Returns a filtered customer page with contact details, order count, amount spent, city, and cursor pagination.
 
-Техническое имя: `list_customers`
+Technical name: `list_customers`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу посмотреть список клиентов.
+> I want to find customers in Shopify.
 
-Возвращает страницу клиентов (имя, email, телефон, число заказов, потраченная сумма, город) плюс count — число клиентов под тем же фильтром.
+Use it to search by email, phone, state, date, or another Shopify customer query without changing personal data.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Список клиентов» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it for customer support and order research when a read-only customer list is enough.
 
-## Что нужно передать
+## What to provide
 
-- `first` — **необязательно**. Размер страницы, 1..250. По умолчанию 20.
-- `after` — **необязательно**. endCursor предыдущей страницы — продолжить с него.
-- `query` — **необязательно**. Строка поиска Shopify: "email:ivan@example.com", "state:enabled", "created_at:>=2026-01-01".
+- `first` — optional page size, 1..250; default 20.
+- `after` — optional cursor from the previous page.
+- `query` — optional Shopify search string such as `email:ivan@example.com`, `phone:+79001234567`, or `state:enabled`.
 
-## Что вернёт
+## What it returns
 
-Возвращает страницу клиентов с полями hasNextPage/endCursor плюс count под тем же фильтром. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Customer name, email, phone, order count, amount spent, city, `count`, cursor pagination fields, and GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Посмотреть список клиентов в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Find customers with the email ivan@example.com and show their order counts.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Пагинация курсорная: hasNextPage/endCursor в ответе, следующий вызов передаёт endCursor в after; номера страницы у Shopify нет. query — строка поиска Shopify: "email:ivan@example.com", "phone:+79001234567", "state:enabled", "created_at:>=2026-01-01". Клиентов не создаёт и не меняет — записи с персональными данными изменяются только через graphql_request. Нужен scope read_customers.
+Customer writes are not exposed by dedicated tools; use `graphql_request` only for an intentional, reviewed mutation. Scope: `read_customers`. The count follows the same filter and may be `null` when Shopify does not provide it.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get a customer](./get-customer.md) — `get_customer`
+- [List orders](./list-orders.md) — `list_orders`
 
-- [Карточка клиента](./get-customer.md) — `get_customer`
-- [Произвольный GraphQL-запрос](./graphql-request.md) — `graphql_request`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Клиенты
-- **Источник описания:** регистрация `list_customers` в `src/tools/customers.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Customers
+- **Source:** `registerTool("list_customers")` in `src/tools/customers.ts`
+- [All capabilities](./index.md)

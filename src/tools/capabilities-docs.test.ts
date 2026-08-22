@@ -20,15 +20,15 @@ const TOOLS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(TOOLS_DIR, "../..");
 const DOCS_DIR = path.join(ROOT, "docs", "capabilities");
 const REQUIRED_HEADINGS = [
-  "## Какую задачу решает",
-  "## Когда использовать",
-  "## Что нужно передать",
-  "## Что вернёт",
-  "## Что изменится",
-  "## Пример запроса",
-  "## Возможные ошибки и ограничения",
-  "## Связанные MCP-инструменты",
-  "## Технические сведения"
+  "## What problem it solves",
+  "## When to use it",
+  "## What to provide",
+  "## What it returns",
+  "## What changes in Shopify",
+  "## Example request",
+  "## Errors and limitations",
+  "## Related MCP tools",
+  "## Technical details"
 ];
 const FORBIDDEN_INTERNAL_TERMS = /\b(?:Core Job|Big Job|Small Job|Micro Job|Critical Chain of Jobs|AJTBD|Next Move Theory|RAT)\b/;
 
@@ -37,9 +37,9 @@ function slug(name: string): string {
 }
 
 function expectedImpact(annotations: Annotations | undefined): string {
-  if (annotations?.readOnlyHint) return "только чтение";
-  if (annotations?.destructiveHint) return "опасная операция";
-  return "изменяет данные";
+  if (annotations?.readOnlyHint) return "read-only";
+  if (annotations?.destructiveHint) return "destructive operation";
+  return "changes data";
 }
 
 async function collectRegistrations(): Promise<Registration[]> {
@@ -72,10 +72,10 @@ test("every registered MCP tool has one complete capability page", async () => {
   for (const tool of registrations) {
     const filename = `${slug(tool.name)}.md`;
     const page = await readFile(path.join(DOCS_DIR, filename), "utf8");
-    assert.match(page, /MCP-инструмент \(tool\)/, `${tool.name}: category phrase`);
-    assert.match(page, /> Я хочу [^\n]+/, `${tool.name}: user task`);
-    assert.ok(page.includes("Техническое имя: " + String.fromCharCode(96) + tool.name + String.fromCharCode(96)), `${tool.name}: technical name`);
-    assert.ok(page.includes("**Воздействие:** " + expectedImpact(tool.annotations)), `${tool.name}: impact`);
+    assert.match(page, /MCP tool/, `${tool.name}: category phrase`);
+    assert.match(page, /> I want to [^\n]+/, `${tool.name}: user task`);
+    assert.ok(page.includes("Technical name: " + String.fromCharCode(96) + tool.name + String.fromCharCode(96)), `${tool.name}: technical name`);
+    assert.ok(page.includes("**Impact:** " + expectedImpact(tool.annotations)), `${tool.name}: impact`);
     for (const heading of REQUIRED_HEADINGS) assert.ok(page.includes(heading), `${tool.name}: missing ${heading}`);
     assert.doesNotMatch(page, FORBIDDEN_INTERNAL_TERMS, `${tool.name}: internal methodology leaked`);
     assert.ok(index.includes(`./${filename}`), `${tool.name}: missing from index`);

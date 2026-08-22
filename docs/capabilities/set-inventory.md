@@ -1,50 +1,48 @@
-# Shopify Admin: Задать остатки — MCP-инструмент (tool)
+# Shopify Admin: Set inventory — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Устанавливает АБСОЛЮТНЫЙ доступный остаток (available) позиций на локациях — «стало N», не «изменить на N»: повторный вызов с теми же числами ничего не меняет.
+**MCP tool for Shopify:** Sets the absolute available inventory quantity for inventory items at locations: “become N,” not “change by N.”
 
-Техническое имя: `set_inventory`
+Technical name: `set_inventory`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу задать остатки.
+> I want to set the available stock for Shopify inventory items.
 
-Устанавливает АБСОЛЮТНЫЙ доступный остаток (available) позиций на локациях — «стало N», не «изменить на N»: повторный вызов с теми же числами ничего не меняет.
+Use it after reading the product's `inventoryItem.id` and the target location id.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Задать остатки» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it for an inventory count correction or another intentional absolute stock update. The operation changes real Shopify data.
 
-## Что нужно передать
+## What to provide
 
-- `quantities` — **обязательно**. Позиции и их новые абсолютные остатки, 1..250 элементов. Каждый элемент: `inventoryItemId` — id inventoryItem варианта, число или gid://shopify/InventoryItem/<id> (из get_product, поле variants[].inventoryItem.id — это НЕ id варианта); `locationId` — id локации, число или gid://shopify/Location/<id> (из list_locations); `quantity` — новый доступный остаток, целое >= 0.
-- `reason` — **необязательно**. Причина изменения из словаря Shopify (correction, received, damaged, restock, …). По умолчанию correction.
+- `quantities` — required list of 1..250 items. Each item contains `inventoryItemId`, `locationId`, and an integer `quantity` >= 0.
+- `reason` — optional Shopify inventory reason; default `correction`.
 
-## Что вернёт
+## What it returns
 
-Возвращает результат установки остатков. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The result of setting the quantities and the GraphQL cost state.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент изменяет реальные данные Shopify так, как описано выше. Автоматического отката сервер не обещает.
+The available quantity is set absolutely through `inventorySetQuantities`. A repeat with the same numbers leaves the same state, but there is no automatic rollback.
 
-## Пример запроса
+## Example request
 
-> Задать остатки в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Set inventory item 123456 at location 987654 to an available quantity of 12.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Остаток абсолютный, а не приращение: «стало N», не «изменить на N». inventoryItemId берётся из ответа get_product (variants[].inventoryItem.id), locationId — из list_locations; перепутать inventoryItemId с id варианта — типичная ошибка. reason — из закрытого словаря Shopify, по умолчанию correction. Историю движений не пишет и резервы не трогает. Провал приходит как ошибка с userErrors — например, если позиция не отслеживается (inventory tracking выключен) или не привязана к локации; HTTP-статус мутации всегда 200, вердикт лежит в userErrors, и инструмент превращает его в ошибку. Нужен scope write_inventory.
+Get `inventoryItemId` from `get_product` — it is not the variant id. Get `locationId` from `list_locations`. Shopify can reject untracked items or items not connected to the location through `userErrors`. Scope: `write_inventory`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get a product](./get-product.md) — `get_product`
+- [List locations](./list-locations.md) — `list_locations`
 
-- [Карточка товара](./get-product.md) — `get_product`
-- [Список локаций](./list-locations.md) — `list_locations`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** изменяет данные
-- **Группа:** Остатки
-- **Источник описания:** регистрация `set_inventory` в `src/tools/inventory.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** changes data
+- **Group:** Inventory
+- **Source:** `registerTool("set_inventory")` in `src/tools/inventory.ts`
+- [All capabilities](./index.md)

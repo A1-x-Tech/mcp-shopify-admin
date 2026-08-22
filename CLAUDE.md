@@ -3,9 +3,9 @@
 MCP server for the **Shopify Admin API** (GraphQL — the store admin, *not* the Storefront API),
 TypeScript over stdio. One endpoint
 `https://{store}.myshopify.com/admin/api/{version}/graphql.json`; auth is a static
-`X-Shopify-Access-Token` (the Admin API access token of a custom app — no OAuth exchange), the
-store host from `SHOPIFY_STORE_DOMAIN`, the version from `SHOPIFY_API_VERSION` (default pinned in
-`config.ts`). The API is metered by a **GraphQL cost bucket** (per-query cost, `restoreRate`
+`X-Shopify-Access-Token` (a ready-to-use Admin API access token — this server performs no OAuth
+exchange or refresh), the store host from `SHOPIFY_STORE_DOMAIN`, the version from
+`SHOPIFY_API_VERSION` (default pinned in `config.ts`). The API is metered by a **GraphQL cost bucket** (per-query cost, `restoreRate`
 points restored per second) reported in `extensions.cost` of every response.
 
 ## Commands

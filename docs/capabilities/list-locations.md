@@ -1,49 +1,47 @@
-# Shopify Admin: Список локаций — MCP-инструмент (tool)
+# Shopify Admin: List locations — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает локации магазина (склады и точки), включая неактивные: id, название, адрес, активность, выполняет ли онлайн-заказы.
+**MCP tool for Shopify:** Returns active and inactive Shopify locations with the ids and addresses needed for inventory work.
 
-Техническое имя: `list_locations`
+Technical name: `list_locations`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу посмотреть список локаций.
+> I want to see the store locations where inventory can be managed.
 
-Возвращает локации магазина (склады и точки), включая неактивные: id, название, адрес, активность, выполняет ли онлайн-заказы. Именно id локации нужен инструменту set_inventory.
+Use it to find a location id before setting inventory or to understand the store's warehouse structure.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Список локаций» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it before `set_inventory`, especially when a product can be stocked at more than one location.
 
-## Что нужно передать
+## What to provide
 
-- `first` — **необязательно**. Размер страницы, 1..250. По умолчанию 20.
+- Optional `first` page size.
 
-## Что вернёт
+## What it returns
 
-Возвращает локации магазина: id, название, адрес, активность, выполняет ли онлайн-заказы. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Location id, name, address, active state, and whether the location fulfills online orders, plus pagination and GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Посмотреть список локаций в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> List all Shopify locations, including inactive ones.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-У большинства магазинов локаций одна-две, так что страницы по умолчанию хватает. Локации не создаёт и не меняет. Нужен scope read_locations.
+The location id is different from an inventory item id and a product or variant id. Scope: `read_locations`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get shop data](./get-shop.md) — `get_shop`
+- [Set inventory](./set-inventory.md) — `set_inventory`
 
-- [Задать остатки](./set-inventory.md) — `set_inventory`
-- [Данные магазина](./get-shop.md) — `get_shop`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Остатки
-- **Источник описания:** регистрация `list_locations` в `src/tools/inventory.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Inventory
+- **Source:** `registerTool("list_locations")` in `src/tools/inventory.ts`
+- [All capabilities](./index.md)

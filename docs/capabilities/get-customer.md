@@ -1,49 +1,47 @@
-# Shopify Admin: Карточка клиента — MCP-инструмент (tool)
+# Shopify Admin: Get a customer — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает одного клиента целиком: контакты, адреса, заметку, теги и его 10 последних заказов с суммами.
+**MCP tool for Shopify:** Returns one customer's contacts, addresses, note, tags, and 10 latest orders with totals.
 
-Техническое имя: `get_customer`
+Technical name: `get_customer`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу открыть карточку клиента.
+> I want to open a Shopify customer record.
 
-Возвращает одного клиента целиком: контакты, адреса, заметку, теги и его 10 последних заказов с суммами.
+Use it when customer id is known and a complete read-only customer view is needed.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Карточка клиента» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it after finding the customer with `list_customers`, or when reviewing the customer's recent order history.
 
-## Что нужно передать
+## What to provide
 
-- `id` — **обязательно**. Id клиента: число или gid://shopify/Customer/<id>.
+- `id` — required customer id as a number or `gid://shopify/Customer/<id>`.
 
-## Что вернёт
+## What it returns
 
-Возвращает клиента с контактами, адресами, заметкой, тегами и его 10 последними заказами с суммами. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Contacts, addresses, note, tags, and 10 latest orders with totals, plus GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Открыть карточку клиента в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Open the customer with id 8123456789 and show their contact details and latest orders.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Принимает числовой id или gid://shopify/Customer/<id>; клиент по email ищется через list_customers с query "email:...". Несуществующий клиент — это data: null, а не ошибка. Записи клиентов не изменяет — это персональные данные, изменения только через graphql_request. Нужен scope read_customers.
+A customer can be found by email with `list_customers` and a query such as `email:ivan@example.com`. A missing customer is `data: null`. Dedicated tools do not change customer records because they contain personal data. Scope: `read_customers`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [List customers](./list-customers.md) — `list_customers`
+- [Get an order](./get-order.md) — `get_order`
 
-- [Список клиентов](./list-customers.md) — `list_customers`
-- [Карточка заказа](./get-order.md) — `get_order`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Клиенты
-- **Источник описания:** регистрация `get_customer` в `src/tools/customers.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Customers
+- **Source:** `registerTool("get_customer")` in `src/tools/customers.ts`
+- [All capabilities](./index.md)

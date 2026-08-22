@@ -1,56 +1,50 @@
-# Shopify Admin: Изменить товар — MCP-инструмент (tool)
+# Shopify Admin: Update a product — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Перезаписывает переданные поля товара (название, описание, вендор, тип, теги, статус) и не трогает остальные.
+**MCP tool for Shopify:** Replaces the product fields supplied in the request and leaves other fields untouched.
 
-Техническое имя: `update_product`
+Technical name: `update_product`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу изменить товар.
+> I want to change the details of a Shopify product.
 
-Перезаписывает переданные поля товара (название, описание, вендор, тип, теги, статус) и не трогает остальные.
+Use it for title, description, vendor, product type, tags, or status changes without touching prices or inventory.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Изменить товар» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it after finding the product id and deciding exactly which fields should change. The operation updates real Shopify data.
 
-## Что нужно передать
+## What to provide
 
-- `id` — **обязательно**. Id товара: число или gid://shopify/Product/<id>.
-- `title` — **необязательно**. Новое название.
-- `descriptionHtml` — **необязательно**. Новое описание в HTML.
-- `vendor` — **необязательно**. Новый вендор.
-- `productType` — **необязательно**. Новый тип.
-- `tags` — **необязательно**. Полный новый список тегов (замещает старый).
-- `status` — **необязательно**. ACTIVE | DRAFT | ARCHIVED.
+- `id` — required product id as a number or Product gid.
+- Optional `title`, `descriptionHtml`, `vendor`, `productType`, `tags`, and `status`.
+- At least one field besides `id` must be supplied.
 
-## Что вернёт
+## What it returns
 
-Возвращает обновлённый товар. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The updated product and the GraphQL cost state.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент изменяет реальные данные Shopify так, как описано выше. Автоматического отката сервер не обещает.
+Only the fields included in the request are replaced. `tags` replaces the entire tag list. Prices and inventory are not changed.
 
-## Пример запроса
+## Example request
 
-> Изменить товар в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Change product 8123456789 to the title “Winter mug” and replace its tags with “winter” and “gift”.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-tags замещают весь список тегов, а не добавляются к нему. Цены и остатки здесь не меняются — цены через update_variant, остатки через set_inventory. status: DRAFT снимает товар с витрины, ARCHIVED архивирует (обратимо — вернуть можно, снова передав ACTIVE). Провал приходит как ошибка с userErrors — HTTP-статус Shopify всегда 200, реальный вердикт мутации лежит в userErrors, и инструмент превращает его в ошибку.
+Use `update_variant` for prices and `set_inventory` for inventory. `DRAFT` marks a product as a draft and `ARCHIVED` archives it. Shopify mutation failures are surfaced from `userErrors`. Scope: `write_products`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get a product](./get-product.md) — `get_product`
+- [Update variant prices](./update-variant.md) — `update_variant`
+- [Set inventory](./set-inventory.md) — `set_inventory`
 
-- [Карточка товара](./get-product.md) — `get_product`
-- [Изменить цены варианта](./update-variant.md) — `update_variant`
-- [Задать остатки](./set-inventory.md) — `set_inventory`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** изменяет данные
-- **Группа:** Товары
-- **Источник описания:** регистрация `update_product` в `src/tools/products.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** changes data
+- **Group:** Products
+- **Source:** `registerTool("update_product")` in `src/tools/products.ts`
+- [All capabilities](./index.md)

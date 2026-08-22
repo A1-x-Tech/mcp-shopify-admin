@@ -1,54 +1,52 @@
-# Shopify Admin: Отменить заказ — MCP-инструмент (tool)
+# Shopify Admin: Cancel an order — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** НЕОБРАТИМО отменяет заказ. Два решения обязательны и не имеют значений по умолчанию: refund — вернуть ли деньги покупателю, restock — вернуть ли позиции на склад.
+**MCP tool for Shopify:** Irreversibly cancels an order and requires explicit decisions about refunding the customer and restocking the items.
 
-Техническое имя: `cancel_order`
+Technical name: `cancel_order`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу отменить заказ.
+> I want to cancel a Shopify order.
 
-НЕОБРАТИМО отменяет заказ. Два решения обязательны и не имеют значений по умолчанию: refund — вернуть ли деньги покупателю, restock — вернуть ли позиции на склад.
+Use it when the cancellation decision is final and the refund and restock consequences are known.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Отменить заказ» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it only after reviewing the order and deciding the required `refund` and `restock` booleans. The operation changes real Shopify data.
 
-## Что нужно передать
+## What to provide
 
-- `orderId` — **обязательно**. Id заказа: число или gid://shopify/Order/<id>.
-- `reason` — **обязательно**. Причина отмены: CUSTOMER (просьба покупателя), DECLINED (платёж отклонён), FRAUD, INVENTORY (нет товара), STAFF (ошибка персонала), OTHER.
-- `refund` — **обязательно**. Вернуть ли платёж покупателю. Обязательное решение.
-- `restock` — **обязательно**. Вернуть ли позиции заказа на склад. Обязательное решение.
-- `notifyCustomer` — **необязательно**. Отправить ли покупателю письмо об отмене.
-- `staffNote` — **необязательно**. Внутренняя заметка к отмене (покупателю не видна).
+- `orderId` — required order id.
+- `reason` — required `CUSTOMER`, `DECLINED`, `FRAUD`, `INVENTORY`, `STAFF`, or `OTHER`.
+- `refund` — required boolean: whether to refund the payment.
+- `restock` — required boolean: whether to return items to inventory.
+- `notifyCustomer` — optional customer notification.
+- `staffNote` — optional internal note.
 
-## Что вернёт
+## What it returns
 
-Отмена выполняется фоновой задачей: в ответе job, а не обновлённый заказ — итог стоит проверить через get_order. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Shopify returns a background `job`, not necessarily the final order state. The result also carries GraphQL cost data; check the outcome with `get_order`.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Исходный код помечает весь вызов «Отменить заказ» как опасный. Отмена необратима — расформировать её нельзя; перед вызовом проверьте параметры и обратимость результата.
+The order is cancelled. Depending on the explicit booleans, Shopify may refund the customer and/or restock the items. Cancellation cannot be undone by this tool.
 
-## Пример запроса
+## Example request
 
-> Отменить заказ в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их. Сначала покажи, какие данные изменятся, и дождись подтверждения.
+> Show me the consequences of cancelling order 8123456789, then cancel it with no refund and no restock after I confirm.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Отмена необратима, а решения refund и restock не имеют значений по умолчанию — оба нужно принять явно. notifyCustomer управляет письмом покупателю. Уже выданный (fulfilled) заказ Shopify отменить не даст — это придёт ошибкой userErrors (HTTP-статус мутации всегда 200, вердикт лежит в userErrors, и инструмент превращает его в ошибку). Расформировать отмену нельзя; частичные возвраты этот инструмент не делает. Нужен scope read_orders; заказы старше 60 дней требуют ещё read_all_orders.
+The tool requires `read_orders` and old orders may require `read_all_orders`. Fulfilled orders can be rejected by Shopify. Partial refunds are not implemented here. Shopify reports mutation failures through `userErrors`; the server turns them into errors even though the HTTP status may be 200.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get an order](./get-order.md) — `get_order`
+- [List orders](./list-orders.md) — `list_orders`
 
-- [Карточка заказа](./get-order.md) — `get_order`
-- [Список заказов](./list-orders.md) — `list_orders`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** опасная операция
-- **Группа:** Заказы
-- **Источник описания:** регистрация `cancel_order` в `src/tools/orders.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** destructive operation
+- **Group:** Orders
+- **Source:** `registerTool("cancel_order")` in `src/tools/orders.ts`
+- [All capabilities](./index.md)

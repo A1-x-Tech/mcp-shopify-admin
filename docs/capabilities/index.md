@@ -1,48 +1,48 @@
-# MCP-возможности Shopify Admin
+# Shopify Admin capabilities
 
-Каталог содержит 16 публичных страниц — по одной для каждого зарегистрированного MCP-инструмента (tool) репозитория `mcp-shopify-admin`. Страницы начинаются с задачи пользователя, объясняют результат и отдельно показывают, изменит ли вызов реальные данные.
+This catalog contains 16 public pages — one for every registered MCP tool in `mcp-shopify-admin`. Each page starts with the user's task, explains the result, and states whether the call changes real Shopify data.
 
-Используйте этот каталог для выбора готовой возможности. Сервер привязан к одному магазину (SHOPIFY_STORE_DOMAIN), каждый ответ несёт cost — состояние cost-бакета GraphQL.
+The server is bound to one store through `SHOPIFY_STORE_DOMAIN`; every result carries the GraphQL cost-bucket state.
 
-## Магазин
+## Shop
 
-- [Данные магазина](./get-shop.md) — Возвращает магазин, к которому привязан сервер: название, домены, валюту, тариф, часовой пояс, число товаров и список локаций. **Воздействие:** только чтение.
+- [Shop data](./get-shop.md) — Returns the store, domains, currency, plan, timezone, product count, and locations. **Impact:** read-only.
 
-## Товары
+## Products
 
-- [Список товаров](./list-products.md) — Возвращает страницу товаров магазина с курсорной пагинацией и count под тем же фильтром. **Воздействие:** только чтение.
-- [Карточка товара](./get-product.md) — Возвращает один товар целиком: описание, опции, до 100 вариантов с ценами, остатками, SKU и id inventoryItem. **Воздействие:** только чтение.
-- [Создать товар](./create-product.md) — Создаёт товар с дефолтным вариантом; на витрину не выкладывает — созданные через API товары не опубликованы ни в одном канале продаж. **Воздействие:** изменяет данные.
-- [Изменить товар](./update-product.md) — Перезаписывает переданные поля товара (название, описание, вендор, тип, теги, статус) и не трогает остальные. **Воздействие:** изменяет данные.
-- [Изменить цены варианта](./update-variant.md) — Задаёт цену и/или зачёркнутую цену вариантам одного товара — до 250 вариантов за вызов. **Воздействие:** изменяет данные.
+- [List products](./list-products.md) — Returns a cursor-paginated product page with inventory and variant prices. **Impact:** read-only.
+- [Get a product](./get-product.md) — Returns one product with options and up to 100 variants, prices, inventory, SKU, barcode, and inventory item ids. **Impact:** read-only.
+- [Create a product](./create-product.md) — Creates a product with Shopify's default variant; it is not published to sales channels. **Impact:** changes data.
+- [Update a product](./update-product.md) — Replaces the supplied product fields without touching the others. **Impact:** changes data.
+- [Update variant prices](./update-variant.md) — Sets price and/or compare-at price for up to 250 variants of one product. **Impact:** changes data.
 
-## Заказы
+## Orders
 
-- [Список заказов](./list-orders.md) — Возвращает страницу заказов, новые первыми, с фильтром строкой поиска Shopify; заказы старше 60 дней требуют scope read_all_orders. **Воздействие:** только чтение.
-- [Карточка заказа](./get-order.md) — Возвращает один заказ целиком: позиции, суммы, адрес доставки, отгрузки с трек-номерами. **Воздействие:** только чтение.
-- [Отменить заказ](./cancel-order.md) — НЕОБРАТИМО отменяет заказ; решения refund и restock обязательны и не имеют значений по умолчанию. **Воздействие:** опасная операция.
+- [List orders](./list-orders.md) — Returns newest-first orders with Shopify search filtering; orders older than 60 days require `read_all_orders`. **Impact:** read-only.
+- [Get an order](./get-order.md) — Returns line items, totals, addresses, notes, tags, and fulfillments with tracking numbers. **Impact:** read-only.
+- [Cancel an order](./cancel-order.md) — Irreversibly cancels an order; refund and restock decisions are required. **Impact:** destructive operation.
 
-## Клиенты
+## Customers
 
-- [Список клиентов](./list-customers.md) — Возвращает страницу клиентов (имя, email, телефон, число заказов, потраченная сумма) плюс count под тем же фильтром. **Воздействие:** только чтение.
-- [Карточка клиента](./get-customer.md) — Возвращает одного клиента целиком: контакты, адреса, заметку, теги и 10 последних заказов. **Воздействие:** только чтение.
+- [List customers](./list-customers.md) — Returns a filtered customer page with contacts, order count, amount spent, and city. **Impact:** read-only.
+- [Get a customer](./get-customer.md) — Returns contacts, addresses, notes, tags, and 10 latest orders. **Impact:** read-only.
 
-## Остатки
+## Inventory
 
-- [Список локаций](./list-locations.md) — Возвращает локации магазина (склады и точки), включая неактивные; их id нужны инструменту set_inventory. **Воздействие:** только чтение.
-- [Задать остатки](./set-inventory.md) — Устанавливает абсолютный доступный остаток позиций на локациях — «стало N», не «изменить на N». **Воздействие:** изменяет данные.
+- [List locations](./list-locations.md) — Returns active and inactive store locations. **Impact:** read-only.
+- [Set inventory](./set-inventory.md) — Sets the absolute available inventory quantity at locations. **Impact:** changes data.
 
-## Скидки
+## Discounts
 
-- [Список скидок](./list-discounts.md) — Возвращает страницу скидок магазина — промокодных и автоматических, с кодами и счётчиками применений. **Воздействие:** только чтение.
-- [Создать промокод](./create-basic-discount.md) — Создаёт базовую промокодную скидку: один код, ровно одно из percentage (0..1) и amount, для всех клиентов на все товары. **Воздействие:** изменяет данные.
+- [List discounts](./list-discounts.md) — Returns automatic and code discounts with status, dates, limits, and usage data. **Impact:** read-only.
+- [Create a basic discount](./create-basic-discount.md) — Creates one basic code discount for all customers and products. **Impact:** changes data.
 
-## Технический доступ
+## Technical access
 
-- [Произвольный GraphQL-запрос](./graphql-request.md) — Выполняет произвольный GraphQL-документ против Admin API — для всего, чему нет отдельного инструмента; вердикт мутации нужно проверять в userErrors самому. **Воздействие:** опасная операция.
+- [Arbitrary GraphQL request](./graphql-request.md) — Runs an arbitrary Admin GraphQL document for capabilities without a dedicated tool. **Impact:** destructive operation.
 
-## Для разработчиков и издателей
+## For developers and publishers
 
-- [Контракт документации MCP-возможностей](../CAPABILITY-DOCUMENTATION.md)
-- [Технический справочник инструментов](../TOOLS.md)
-- [Репозиторий на GitHub](https://github.com/A1-x-Tech/mcp-shopify-admin)
+- [Capability documentation contract](../CAPABILITY-DOCUMENTATION.md)
+- [Technical tool reference](../TOOLS.md)
+- [GitHub repository](https://github.com/A1-x-Tech/mcp-shopify-admin)

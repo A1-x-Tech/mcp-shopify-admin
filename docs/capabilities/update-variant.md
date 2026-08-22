@@ -1,52 +1,50 @@
-# Shopify Admin: Изменить цены варианта — MCP-инструмент (tool)
+# Shopify Admin: Update variant prices — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Задаёт цену и/или зачёркнутую цену (compareAtPrice) вариантам одного товара — до 250 вариантов за вызов, каждый элемент variants несёт id варианта и новые значения.
+**MCP tool for Shopify:** Sets the price and/or compare-at price for up to 250 variants belonging to one product.
 
-Техническое имя: `update_variant`
+Technical name: `update_variant`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу изменить цены варианта.
+> I want to change prices for product variants.
 
-Задаёт цену и/или зачёркнутую цену (compareAtPrice) вариантам одного товара — до 250 вариантов за вызов, каждый элемент variants несёт id варианта и новые значения.
+Use it for price updates after obtaining the parent product id and variant ids from a product read.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Изменить цены варианта» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it when the new prices are known and you want to update one or more variants in one call. The operation changes real Shopify data.
 
-## Что нужно передать
+## What to provide
 
-- `productId` — **обязательно**. Id товара-родителя: число или gid://shopify/Product/<id>. Он есть в ответах list_products и get_product.
-- `variants` — **обязательно**. Варианты одного товара с новыми ценами, 1..250 элементов. Каждый элемент: `id` (число или gid://shopify/ProductVariant/<id>), `price` — новая цена, например "1999.00", `compareAtPrice` — зачёркнутая цена «до скидки»; null — убрать её.
+- `productId` — required parent product id.
+- `variants` — required list of 1..250 variants. Each item has `id`, optional decimal-string `price`, and optional `compareAtPrice`; `null` removes the compare-at price.
 
-## Что вернёт
+## What it returns
 
-Возвращает обновлённые варианты. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The updated variants and the GraphQL cost state.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент изменяет реальные данные Shopify так, как описано выше. Автоматического отката сервер не обещает.
+The supplied price fields are replaced in Shopify. SKU, barcode, options, media, and inventory are not changed.
 
-## Пример запроса
+## Example request
 
-> Изменить цены варианта в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Set the price of variant 987654321 to 1999.00 and remove its compare-at price.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Суммы — десятичные строки в валюте магазина ("1999.00"); compareAtPrice: null убирает зачёркнутую цену. Больше ничего в варианте не меняет (SKU, штрихкод, опции — через graphql_request). Требуется id товара-родителя: он есть в ответах list_products и get_product. Провал приходит как ошибка с userErrors — HTTP-статус Shopify всегда 200, реальный вердикт мутации лежит в userErrors, и инструмент превращает его в ошибку.
+Prices are decimal strings in the shop currency. The parent `productId` must match the variants. Use `graphql_request` for other variant fields. Shopify mutation failures are surfaced from `userErrors`. Scope: `write_products`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get a product](./get-product.md) — `get_product`
+- [List products](./list-products.md) — `list_products`
+- [Update a product](./update-product.md) — `update_product`
+- [Arbitrary GraphQL request](./graphql-request.md) — `graphql_request`
 
-- [Карточка товара](./get-product.md) — `get_product`
-- [Список товаров](./list-products.md) — `list_products`
-- [Изменить товар](./update-product.md) — `update_product`
-- [Произвольный GraphQL-запрос](./graphql-request.md) — `graphql_request`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** изменяет данные
-- **Группа:** Товары
-- **Источник описания:** регистрация `update_variant` в `src/tools/products.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** changes data
+- **Group:** Products
+- **Source:** `registerTool("update_variant")` in `src/tools/products.ts`
+- [All capabilities](./index.md)

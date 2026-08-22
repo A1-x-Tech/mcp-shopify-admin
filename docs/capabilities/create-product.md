@@ -1,55 +1,53 @@
-# Shopify Admin: Создать товар — MCP-инструмент (tool)
+# Shopify Admin: Create a product — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Создаёт товар и возвращает его с дефолтным вариантом, который Shopify добавляет сам.
+**MCP tool for Shopify:** Creates a product with Shopify's default variant and returns the new record.
 
-Техническое имя: `create_product`
+Technical name: `create_product`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу создать товар.
+> I want to create a product in Shopify.
 
-Создаёт товар и возвращает его с дефолтным вариантом, который Shopify добавляет сам. Товар НЕ появляется на витрине: созданные через API товары не опубликованы ни в одном канале продаж, и публикация делается отдельной операцией publishablePublish (её здесь нет — только через graphql_request). Статус по умолчанию — ACTIVE, но это не публикация: status: "DRAFT" дополнительно помечает товар черновиком.
+Use it to add the basic product record before setting variant prices or completing other work through the GraphQL escape hatch.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Создать товар» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it when the title and initial product fields are ready and you intentionally want to create a new Shopify object. Ask the AI client to show the fields before confirming if the values matter.
 
-## Что нужно передать
+## What to provide
 
-- `title` — **обязательно**. Название товара.
-- `descriptionHtml` — **необязательно**. Описание в HTML.
-- `vendor` — **необязательно**. Вендор/бренд.
-- `productType` — **необязательно**. Тип товара в свободной форме.
-- `tags` — **необязательно**. Теги.
-- `status` — **необязательно**. ACTIVE (по умолчанию; товар всё равно не опубликован в каналах продаж) | DRAFT (черновик) | ARCHIVED.
+- `title` — required product title.
+- `descriptionHtml` — optional HTML description.
+- `vendor` — optional vendor or brand.
+- `productType` — optional free-form product type.
+- `tags` — optional tags.
+- `status` — optional `ACTIVE`, `DRAFT`, or `ARCHIVED`; default `ACTIVE`.
 
-## Что вернёт
+## What it returns
 
-Возвращает созданный товар вместе с дефолтным вариантом — его id нужен, чтобы следующим вызовом update_variant задать цену. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+The created product and Shopify's default variant. Use the returned variant id with `update_variant` to set a price. The response also carries GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-В магазине появляется новый товар с дефолтным вариантом — но только в админке: на витрине он не показывается, потому что созданные через API товары не опубликованы ни в одном канале продаж. Публикация — это отдельная операция publishablePublish, своего инструмента для неё здесь нет: выложить товар в канал продаж можно только через graphql_request. Инструмент изменяет реальные данные Shopify так, как описано выше. Автоматического отката сервер не обещает.
+A new product is created in the admin. API-created products are not published to any sales channel. Publishing requires `publishablePublish` through `graphql_request`. There is no automatic rollback.
 
-## Пример запроса
+## Example request
 
-> Создать товар в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Create a draft product called “Winter mug” with the description “A ceramic mug for cold mornings” and the tag “winter”.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Товар не появляется на витрине: созданные через API товары не опубликованы ни в одном канале продаж, а публикация делается отдельной операцией publishablePublish — здесь её нет, только через graphql_request. Статус по умолчанию — ACTIVE, но это не публикация: status: "DRAFT" дополнительно помечает товар черновиком. Цена задаётся следующим вызовом update_variant по id созданного дефолтного варианта (он есть в ответе). Варианты, изображения и остатки этот инструмент не создаёт. Повторный вызов создаст второй такой же товар. Провал приходит как ошибка с userErrors — HTTP-статус Shopify всегда 200, реальный вердикт мутации лежит в userErrors, и инструмент превращает его в ошибку.
+Creating the same request twice creates two products. The default status `ACTIVE` is not publication; use `DRAFT` for a draft. This tool does not create variants, media, inventory, or sales-channel publications. Scope: `write_products`. Shopify mutation failures arrive in `userErrors` and are surfaced as errors.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Update a product](./update-product.md) — `update_product`
+- [Update variant prices](./update-variant.md) — `update_variant`
+- [Get a product](./get-product.md) — `get_product`
 
-- [Изменить цены варианта](./update-variant.md) — `update_variant`
-- [Изменить товар](./update-product.md) — `update_product`
-- [Карточка товара](./get-product.md) — `get_product`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** изменяет данные
-- **Группа:** Товары
-- **Источник описания:** регистрация `create_product` в `src/tools/products.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** changes data
+- **Group:** Products
+- **Source:** `registerTool("create_product")` in `src/tools/products.ts`
+- [All capabilities](./index.md)

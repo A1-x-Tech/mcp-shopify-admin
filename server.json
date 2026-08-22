@@ -26,7 +26,7 @@
         },
         {
           "name": "SHOPIFY_ACCESS_TOKEN",
-          "description": "Admin API access token of your custom app (shpat_…). Treat it as a secret.",
+          "description": "Ready-to-use Shopify Admin API access token. This server does not perform OAuth or refresh it; treat it as a secret.",
           "isRequired": true,
           "isSecret": true
         },

@@ -1,51 +1,49 @@
-# Shopify Admin: Список заказов — MCP-инструмент (tool)
+# Shopify Admin: List orders — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает страницу заказов, новые первыми (номер, дата, финансовый статус, статус выдачи, сумма, клиент) плюс count под тем же фильтром.
+**MCP tool for Shopify:** Returns newest-first orders with statuses, totals, customers, and Shopify search filtering.
 
-Техническое имя: `list_orders`
+Technical name: `list_orders`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу посмотреть список заказов.
+> I want to find orders in Shopify.
 
-Возвращает страницу заказов, новые первыми (номер, дата, финансовый статус, статус выдачи, сумма, клиент) плюс count под тем же фильтром.
+Use it to review recent orders, filter by payment or fulfillment state, and find the id for a later order read or cancellation check.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Список заказов» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it for order monitoring initiated by an AI request. It never changes an order.
 
-## Что нужно передать
+## What to provide
 
-- `first` — **необязательно**. Размер страницы, 1..250. По умолчанию 20.
-- `after` — **необязательно**. endCursor предыдущей страницы — продолжить с него.
-- `query` — **необязательно**. Строка поиска Shopify: "financial_status:paid", "fulfillment_status:unfulfilled", "created_at:>=2026-08-01".
+- `first` — optional page size, 1..250; default 20.
+- `after` — optional cursor from the previous page.
+- `query` — optional Shopify search string such as `financial_status:paid`, `fulfillment_status:unfulfilled`, or `created_at:>=2026-08-01`.
 
-## Что вернёт
+## What it returns
 
-Возвращает страницу заказов с полями hasNextPage/endCursor плюс count под тем же фильтром. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+A page of orders with number, date, financial status, fulfillment status, total, customer, `count`, `hasNextPage`, `endCursor`, and GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Посмотреть список заказов в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Show unpaid and unfulfilled orders created since August 1, 2026.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Пагинация курсорная: hasNextPage/endCursor в ответе, следующий вызов передаёт endCursor в after; параметра «номер страницы» у Shopify нет, а first до 250 дешевле по cost-бакету, чем много мелких страниц. query — строка поиска Shopify: "financial_status:pending", "fulfillment_status:unfulfilled", "created_at:>=2026-08-01", "email:ivan@example.com". Нужен scope read_orders; заказы старше 60 дней требуют ещё read_all_orders — без него они просто не приходят.
+Pagination is cursor-based. Orders older than 60 days require `read_all_orders` in addition to `read_orders`; without it they are not returned. `count` follows the same filter and is not necessarily the store-wide total.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get an order](./get-order.md) — `get_order`
+- [Cancel an order](./cancel-order.md) — `cancel_order`
 
-- [Карточка заказа](./get-order.md) — `get_order`
-- [Отменить заказ](./cancel-order.md) — `cancel_order`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Заказы
-- **Источник описания:** регистрация `list_orders` в `src/tools/orders.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Orders
+- **Source:** `registerTool("list_orders")` in `src/tools/orders.ts`
+- [All capabilities](./index.md)

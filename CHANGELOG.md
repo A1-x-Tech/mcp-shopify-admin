@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Made `README.md` the primary English guide and added a synchronized `README.ru.md` translation.
+- Reworked the technical tool reference and all 16 capability pages into English, with coverage tests for the public documentation contract.
+- Documented Shopify's current authentication boundary: the server accepts a ready-to-use Admin API access token but does not perform OAuth or refresh expiring tokens.
+- Added an A1 social preview asset for the repository.
+
 ## [1.0.0] — 2026-08-21
 
 ### Added

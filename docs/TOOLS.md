@@ -1,166 +1,103 @@
-# Инструменты
+# Tools
 
-Для выбора по пользовательской задаче откройте [каталог MCP-возможностей](./capabilities/index.md). Эта страница остаётся техническим справочником схем и ответов API.
+Use the [capability catalog](./capabilities/index.md) to choose a tool by the user's task. This page is the technical reference for schemas, API behavior, and limits.
 
-16 инструментов поверх Shopify Admin API (GraphQL,
-`https://{store}.myshopify.com/admin/api/{version}/graphql.json`).
+The server exposes 16 tools over the Shopify Admin GraphQL API:
+`https://{store}.myshopify.com/admin/api/{version}/graphql.json`.
 
-Правила, общие для всех инструментов:
+## Rules shared by all tools
 
-- **Магазин зафиксирован.** Каждый запрос уходит на магазин из `SHOPIFY_STORE_DOMAIN` со
-  статическим токеном `SHOPIFY_ACCESS_TOKEN`. Ни один инструмент не принимает магазин или токен.
-  Если значение переменной задано неверно, вызов падает с ошибкой, которая называет именно
-  сломавшуюся переменную, а не две креденшел-переменные; повтор не поможет — нужно исправить
-  конфигурацию и перезапустить сервер.
-- **Любой результат — `{data, cost}`**, сериализованный компактным JSON. `cost` — состояние
-  cost-бакета GraphQL из `extensions.cost` ответа: `actualQueryCost` (сколько стоил запрос),
-  `currentlyAvailable` / `maximumAvailable` (остаток и размер бакета), `restoreRate` (очков в
-  секунду восстанавливается), или `null`, если API его не прислал. Ошибки тоже несут остаток и
-  время повтора, когда ответ их сообщил.
-- **Id принимаются в двух формах**: числом (`8123456789`) или полным gid
-  (`gid://shopify/Product/8123456789`). Клиент нормализует число в gid и отклоняет gid чужого
-  типа до отправки запроса.
-- **Пагинация курсорная.** `first` (1..250, по умолчанию 20) и `after` (значение `endCursor`
-  предыдущей страницы). Номера страниц у Shopify нет. Списки возвращают
-  `{count, items, hasNextPage, endCursor}`; `count` — число объектов под тем же `query`, а не
-  итог по всему магазину: одинаково у `list_products`, `list_orders` и `list_customers`. Там, где
-  API счётчик не отдаёт, `count` — `null`.
-- **`query` — строка поиска Shopify**, передаётся как есть: `field:value`, диапазоны
-  (`created_at:>=2026-01-01`), `AND`/`OR`, `-` для отрицания.
-- **Мутации проверяют `userErrors`.** Shopify отвечает HTTP 200 и на успех, и на отказ; отказ
-  инструменты превращают в ошибку с перечислением `field: message`. Исключение —
-  `graphql_request`: он возвращает payload как есть, и `userErrors` нужно проверять самому.
-  HTTP 200 с телом без объекта `data` — пустым, оборванным на середине или вообще не
-  GraphQL — тоже ошибка («Ответ Shopify не содержит объект data»), а не удачный вызов с пустыми
-  данными: ответ не пришёл, а не «в магазине ничего нет».
-- **Ретраи асимметричны.** `THROTTLED` и HTTP 429 повторяются всегда (вызов отклонён, не
-  выполнен) с ожиданием из математики бакета или `Retry-After`; 5xx и сетевые сбои повторяются
-  только для чтений — повторённая мутация могла бы примениться дважды.
-- **Права — это scopes приложения.** `ACCESS_DENIED` в ошибке значит «токен без нужного scope»
-  (исправляется в админке выдачей scope и переустановкой приложения), а не «неверный токен»;
-  401 — сам токен; 404 на уровне API — не тот `SHOPIFY_STORE_DOMAIN`. Отсутствующая сущность —
-  это `data: null`, а не ошибка.
+- **The store is fixed.** Every request goes to `SHOPIFY_STORE_DOMAIN` and uses `SHOPIFY_ACCESS_TOKEN`. No tool accepts a store or token argument. Invalid configuration names the variable that failed; fix it and restart the server.
+- **Results are `{data, cost}`.** The compact JSON envelope carries the GraphQL cost state from `extensions.cost`: `actualQueryCost`, `currentlyAvailable`, `maximumAvailable`, and `restoreRate`, or `null` when Shopify did not send cost data. Errors may carry the same state and a suggested retry wait.
+- **Ids accept two forms.** Pass a numeric id such as `8123456789` or a full gid such as `gid://shopify/Product/8123456789`. The client normalizes numbers and rejects a gid of the wrong resource type before sending the request.
+- **Pagination is cursor-based.** `first` is 1..250 and defaults to 20; `after` receives the previous page's `endCursor`. Shopify has no page numbers. Lists return `{count, items, hasNextPage, endCursor}`; `count` is under the same query filter, not the store total, and can be `null` where Shopify has no counter.
+- **`query` is Shopify search syntax.** It is passed through as `field:value`, ranges such as `created_at:>=2026-01-01`, `AND`/`OR`, and `-` exclusions.
+- **Mutations check `userErrors`.** Shopify can return HTTP 200 for both success and failure. Wrapped mutations turn `userErrors` into an error with `field: message`; `graphql_request` returns the payload as-is, so callers must inspect `userErrors`. A 200 response without a `data` object is also an error.
+- **Retries are asymmetric.** `THROTTLED` and HTTP 429 are always retried using bucket math or `Retry-After`. 5xx and network errors are retried only for reads, because replaying a mutation could apply it twice.
+- **Access is controlled by app scopes.** `ACCESS_DENIED` means the token is missing a scope, not that the token is invalid; 401 points to the token; a 404 at the API layer usually points to `SHOPIFY_STORE_DOMAIN`. A missing entity is `data: null`, not a transport error.
 
-## Магазин
+## Shop
 
-### `get_shop` — только чтение
+### `get_shop` — read-only
 
-Без аргументов. Возвращает `shop` (название, `myshopifyDomain`, основной домен витрины, валюта,
-тариф, контактный email, часовой пояс), `productsCount` и до 10 локаций (их id нужны
-`set_inventory`). Требует минимальных прав — работает с любым валидным токеном.
+No arguments. Returns the shop name, `myshopifyDomain`, storefront domain, currency, plan, contact email, timezone, `productsCount`, and up to 10 locations. Location ids are needed by `set_inventory`.
 
-## Товары
+## Products
 
-### `list_products` — только чтение
+### `list_products` — read-only
 
-`first?`, `after?`, `query?`. Страница товаров: id, название, handle, статус
-(`ACTIVE`/`DRAFT`/`ARCHIVED`), вендор, тип, теги, `totalInventory`, до 5 вариантов с ценами.
-`count` считается под тем же `query`. Scope: `read_products`.
+`first?`, `after?`, `query?`. Returns product id, title, handle, status (`ACTIVE`/`DRAFT`/`ARCHIVED`), vendor, type, tags, `totalInventory`, and up to five variants with prices. `count` uses the same query. Scope: `read_products`.
 
-### `get_product` — только чтение
+### `get_product` — read-only
 
-`id`. Товар целиком: `descriptionHtml`, опции, до 100 вариантов — у каждого цена,
-`compareAtPrice`, `inventoryQuantity`, SKU, штрихкод и `inventoryItem.id` (нужен
-`set_inventory`). Медиа и метаполя — через `graphql_request`.
+`id`. Returns `descriptionHtml`, options, and up to 100 variants with price, `compareAtPrice`, inventory quantity, SKU, barcode, and `inventoryItem.id` for `set_inventory`. Media and metafields require `graphql_request`.
 
-### `create_product` — создание
+### `create_product` — create
 
-`title`, `descriptionHtml?`, `vendor?`, `productType?`, `tags?`, `status?`. Мутация
-`productCreate`. Shopify сам добавляет дефолтный вариант; цена задаётся следующим вызовом
-`update_variant`. На витрину товар не попадает: созданные через API товары не опубликованы ни в
-одном канале продаж, а публикация — отдельная операция `publishablePublish`, которой здесь нет
-(только через `graphql_request`). Статус по умолчанию `ACTIVE`, но это не публикация; `DRAFT`
-дополнительно помечает товар черновиком. Scope: `write_products`.
+`title`, `descriptionHtml?`, `vendor?`, `productType?`, `tags?`, `status?`. Calls `productCreate`; Shopify adds a default variant. Set its price with `update_variant`. API-created products are not published to sales channels; publishing uses `publishablePublish` through `graphql_request`. The default status is `ACTIVE`, but that is not publication; `DRAFT` marks the product as a draft. Scope: `write_products`.
 
-### `update_product` — запись
+### `update_product` — write
 
-`id` + любые из `title`, `descriptionHtml`, `vendor`, `productType`, `tags`, `status`. Мутация
-`productUpdate`: перезаписывает только переданные поля; `tags` замещает весь список. Цены и
-остатки не трогает.
+`id` plus any of `title`, `descriptionHtml`, `vendor`, `productType`, `tags`, or `status`. Calls `productUpdate` and replaces only supplied fields. `tags` replaces the entire tag list; prices and inventory are untouched. Scope: `write_products`.
 
-### `update_variant` — запись
+### `update_variant` — write
 
-`productId`, `variants: [{id, price?, compareAtPrice?}]` (до 250). Мутация
-`productVariantsBulkUpdate`. Суммы — десятичные строки в валюте магазина; `compareAtPrice: null`
-убирает зачёркнутую цену. Остальные поля варианта — через `graphql_request`.
+`productId`, `variants: [{id, price?, compareAtPrice?}]`, up to 250 variants. Calls `productVariantsBulkUpdate`. Prices are decimal strings in the shop currency; `compareAtPrice: null` removes the compare-at price. Other variant fields require `graphql_request`. Scope: `write_products`.
 
-## Заказы
+## Orders
 
-Scope: `read_orders`; заказы старше 60 дней дополнительно требуют `read_all_orders` (Shopify
-выдаёт его по запросу) — без него они просто не приходят.
+Scope: `read_orders`. Orders older than 60 days additionally require `read_all_orders`; without it, Shopify does not return them.
 
-### `list_orders` — только чтение
+### `list_orders` — read-only
 
-`first?`, `after?`, `query?`. Заказы новые-первыми: номер (`name`), дата, финансовый статус,
-статус выдачи, сумма, клиент. `count` — под тем же фильтром.
+`first?`, `after?`, `query?`. Returns newest-first orders with number, date, financial status, fulfillment status, total, and customer. `count` uses the same filter.
 
-### `get_order` — только чтение
+### `get_order` — read-only
 
-`id` (id, не номер `#1001` — номер ищется `list_orders` c `query: "name:#1001"`). Заказ целиком:
-до 100 позиций, суммы (итог, доставка, возвраты), адрес доставки, заметка, теги, отгрузки с
-трек-номерами.
+`id` (an id, not a number such as `#1001`; find that number with `list_orders` and `query: "name:#1001"`). Returns up to 100 line items, totals, shipping and refund amounts, shipping address, note, tags, and fulfillments with tracking numbers.
 
-### `cancel_order` — опасная операция
+### `cancel_order` — destructive
 
-`orderId`, `reason` (`CUSTOMER`/`DECLINED`/`FRAUD`/`INVENTORY`/`STAFF`/`OTHER`), `refund`
-(обязательный boolean), `restock` (обязательный boolean), `notifyCustomer?`, `staffNote?`.
-Мутация `orderCancel`, необратима; выполняется фоновой задачей — в ответе `job`, итог проверяется
-`get_order`. Выданный заказ Shopify отменить не даст (`userErrors`).
+`orderId`, `reason` (`CUSTOMER`/`DECLINED`/`FRAUD`/`INVENTORY`/`STAFF`/`OTHER`), required boolean `refund`, required boolean `restock`, `notifyCustomer?`, and `staffNote?`. Calls `orderCancel`; cancellation is irreversible and runs as a background job. The response contains `job`; verify the outcome with `get_order`. Shopify rejects fulfilled orders through `userErrors`.
 
-## Клиенты
+## Customers
 
-Только чтение — записи с персональными данными изменяются только через `graphql_request`.
-Scope: `read_customers`.
+Customer records are read-only in dedicated tools; writes require `graphql_request`. Scope: `read_customers`.
 
-### `list_customers` — только чтение
+### `list_customers` — read-only
 
-`first?`, `after?`, `query?`. Имя, email, телефон, число заказов, потраченная сумма, город.
-`count` — под тем же фильтром.
+`first?`, `after?`, `query?`. Returns name, email, phone, order count, amount spent, city, and `count` under the same filter.
 
-### `get_customer` — только чтение
+### `get_customer` — read-only
 
-`id`. Клиент целиком: контакты, адреса, заметка, теги, 10 последних заказов с суммами.
+`id`. Returns contacts, addresses, note, tags, and the customer's 10 latest orders with totals.
 
-## Остатки
+## Inventory
 
-### `list_locations` — только чтение
+### `list_locations` — read-only
 
-`first?`. Локации, включая неактивные: id (нужен `set_inventory`), название, адрес, активность.
-Scope: `read_locations`.
+`first?`. Returns active and inactive locations with id, name, address, and activity state. Scope: `read_locations`.
 
-### `set_inventory` — запись
+### `set_inventory` — write
 
-`quantities: [{inventoryItemId, locationId, quantity}]` (до 250), `reason?` (закрытый словарь
-Shopify, по умолчанию `correction`). Мутация `inventorySetQuantities` с `name: "available"` и
-`ignoreCompareQuantity: true`: задаёт **абсолютный** доступный остаток — «стало N», не «изменить
-на N». `inventoryItemId` — из `get_product` (`variants[].inventoryItem.id`), это не id варианта.
-Scope: `write_inventory`.
+`quantities: [{inventoryItemId, locationId, quantity}]`, up to 250 entries, plus `reason?` from Shopify's closed vocabulary (default: `correction`). Calls `inventorySetQuantities` with `name: "available"` and `ignoreCompareQuantity: true`: it sets the **absolute** available quantity — “become N,” not “change by N.” `inventoryItemId` comes from `get_product` and is not a variant id. Scope: `write_inventory`.
 
-## Скидки
+## Discounts
 
-Scope: `read_discounts` / `write_discounts`.
+Scopes: `read_discounts` / `write_discounts`.
 
-### `list_discounts` — только чтение
+### `list_discounts` — read-only
 
-`first?`, `after?`, `query?`. Промокодные и автоматические скидки: тип (`__typename`), название,
-статус, период, лимит, для кодовых — до 5 кодов и счётчик применений.
+`first?`, `after?`, `query?`. Returns code and automatic discounts with type (`__typename`), title, status, active period, usage limit, and up to five codes plus usage counts for code discounts.
 
-### `create_basic_discount` — создание
+### `create_basic_discount` — create
 
-`title`, `code`, ровно одно из `percentage` (доля 0..1) и `amount` (десятичная строка в валюте
-магазина), `startsAt?` (по умолчанию — немедленно), `endsAt?`, `usageLimit?`,
-`appliesOncePerCustomer?`. Мутация `discountCodeBasicCreate`: один код, для всех клиентов на все
-товары. Прицельные скидки, BXGY, бесплатная доставка и деактивация — через `graphql_request`.
+`title`, `code`, exactly one of `percentage` (0..1) or `amount` (a decimal string in the shop currency), `startsAt?` (immediate by default), `endsAt?`, `usageLimit?`, and `appliesOncePerCustomer?`. Calls `discountCodeBasicCreate`: one code for all customers and all products. Targeted discounts, BXGY, free shipping, and deactivation require `graphql_request`.
 
-## Технический доступ
+## Technical access
 
-### `graphql_request` — опасная операция
+### `graphql_request` — destructive
 
-`query` (GraphQL-документ), `variables?`, `operationName?`. Произвольный запрос к Admin API —
-метаполя, медиа, коллекции, вебхуки, сегменты, bulk-операции. Токен, магазин и версию
-подставляет сервер; `operationName` обязателен, когда в документе больше одной операции.
-Помечен destructive, потому что документ может быть мутацией; мутации не ретраятся, `THROTTLED`
-повторяется сам. Вид операции определяется разбором документа, а не первым словом: мутация,
-перед которой стоят определения фрагментов, — тоже мутация и не повторяется; нечитаемый документ
-считается мутацией. `userErrors` возвращаются как есть — проверять самому. Запрос дороже 1000
-очков Shopify отклоняет валидатором.
+`query` (a GraphQL document), `variables?`, and `operationName?`. Sends an arbitrary Admin API document for metafields, media, collections, webhooks, segments, bulk operations, and anything else without a dedicated tool. The server supplies the store, token, and API version. `operationName` is required when the document contains more than one operation.
+
+It is marked destructive because the document may be a mutation. Mutations are never replayed after 5xx or network errors; `THROTTLED` is retried. Operation kind is detected by parsing the document rather than looking only at its first word, so fragments before a mutation are handled safely; an unparseable document is treated as a mutation. `userErrors` are returned unchanged and must be checked by the caller. Shopify rejects queries costing more than 1,000 points.

@@ -1,49 +1,48 @@
-# Shopify Admin: Карточка заказа — MCP-инструмент (tool)
+# Shopify Admin: Get an order — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает один заказ целиком: позиции (до 100), суммы (итог, доставка, возвраты), адрес доставки, заметку, теги, отгрузки с трек-номерами.
+**MCP tool for Shopify:** Returns one order with line items, totals, shipping address, notes, tags, and fulfillments with tracking numbers.
 
-Техническое имя: `get_order`
+Technical name: `get_order`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу открыть карточку заказа.
+> I want to inspect one Shopify order.
 
-Возвращает один заказ целиком: позиции (до 100), суммы (итог, доставка, возвраты), адрес доставки, заметку, теги, отгрузки с трек-номерами.
+Use it when the order number is known and you need the full record before making a decision.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Карточка заказа» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it after finding the order with `list_orders`, before cancellation, or when reviewing fulfillment and refund details.
 
-## Что нужно передать
+## What to provide
 
-- `id` — **обязательно**. Id заказа: число или gid://shopify/Order/<id> (не номер #1001).
+- `id` — required order id as a number or `gid://shopify/Order/<id>`. The human number such as `#1001` must first be resolved with `list_orders` and `query: "name:#1001"`.
 
-## Что вернёт
+## What it returns
 
-Возвращает заказ с позициями (до 100), суммами, адресом доставки, заметкой, тегами и отгрузками с трек-номерами. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Up to 100 line items, totals, shipping and refund amounts, shipping address, note, tags, fulfillments, and tracking numbers, plus GraphQL cost data.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Открыть карточку заказа в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Show the complete Shopify order with id 8123456789, including items, refunds, and tracking.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Принимает числовой id или gid://shopify/Order/<id> — id, не «номер» вида #1001 (номер ищется через list_orders с query "name:#1001"). Несуществующий заказ — это data: null, а не ошибка. Нужен scope read_orders; заказы старше 60 дней требуют ещё read_all_orders.
+The id must identify an Order. A missing order is `data: null`. Scope: `read_orders`; old orders may additionally require `read_all_orders`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [List orders](./list-orders.md) — `list_orders`
+- [Cancel an order](./cancel-order.md) — `cancel_order`
+- [Get a customer](./get-customer.md) — `get_customer`
 
-- [Список заказов](./list-orders.md) — `list_orders`
-- [Отменить заказ](./cancel-order.md) — `cancel_order`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Заказы
-- **Источник описания:** регистрация `get_order` в `src/tools/orders.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Orders
+- **Source:** `registerTool("get_order")` in `src/tools/orders.ts`
+- [All capabilities](./index.md)

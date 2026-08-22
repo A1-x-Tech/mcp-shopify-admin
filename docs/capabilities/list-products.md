@@ -1,53 +1,51 @@
-# Shopify Admin: Список товаров — MCP-инструмент (tool)
+# Shopify Admin: List products — MCP tool
 
-**MCP-инструмент (tool) для Shopify:** Возвращает страницу товаров магазина (id, название, handle, статус, вендор, тип, теги, общий остаток, до 5 вариантов с ценами) плюс count — число товаров под тем же фильтром.
+**MCP tool for Shopify:** Returns a cursor-paginated product page with status, tags, total inventory, and up to five variants with prices.
 
-Техническое имя: `list_products`
+Technical name: `list_products`
 
-## Какую задачу решает
+## What problem it solves
 
-> Я хочу посмотреть список товаров.
+> I want to find products in my Shopify store.
 
-Возвращает страницу товаров магазина (id, название, handle, статус, вендор, тип, теги, общий остаток, до 5 вариантов с ценами) плюс count — число товаров под тем же фильтром.
+Use it to browse the catalog, filter products with Shopify search syntax, and find candidates for a later read or update.
 
-## Когда использовать
+## When to use it
 
-Используйте эту возможность, когда нужен результат «Список товаров» без ручной работы в админке Shopify. Операция выполняется только по вызову из AI-приложения.
+Use it for catalog review, inventory checks, price audits, or when you need a product id before calling another tool. It reads the store only when requested.
 
-## Что нужно передать
+## What to provide
 
-- `first` — **необязательно**. Размер страницы, 1..250. По умолчанию 20.
-- `after` — **необязательно**. endCursor предыдущей страницы — продолжить с него.
-- `query` — **необязательно**. Строка поиска Shopify, как есть: "status:active", "vendor:Nike", "tag:sale", "created_at:>=2026-01-01".
+- `first` — optional page size, 1..250; default 20.
+- `after` — optional cursor from the previous response.
+- `query` — optional Shopify search string, for example `status:active`, `vendor:Nike`, or `tag:sale`.
 
-## Что вернёт
+## What it returns
 
-Возвращает страницу товаров с pageInfo-полями hasNextPage и endCursor плюс count под тем же фильтром. Каждый ответ несёт cost — состояние cost-бакета GraphQL (actualQueryCost, currentlyAvailable, maximumAvailable, restoreRate).
+Each product includes id, title, handle, status, vendor, product type, tags, `totalInventory`, and up to five variants with prices. The page includes `count` under the same filter, `hasNextPage`, `endCursor`, and the GraphQL cost state.
 
-## Что изменится в Shopify
+## What changes in Shopify
 
-Инструмент только читает данные или состояние подключения и не изменяет их.
+Nothing. This is a read-only request.
 
-## Пример запроса
+## Example request
 
-> Посмотреть список товаров в Shopify. Если не хватает обязательных идентификаторов, сначала уточни их.
+> Find active products from Nike with their prices and inventory.
 
-## Возможные ошибки и ограничения
+## Errors and limitations
 
-Пагинация курсорная: в ответе pageInfo-поля hasNextPage и endCursor, следующий вызов передаёт endCursor в after; параметра «номер страницы» у Shopify нет. query — строка поиска Shopify, например "status:active", "vendor:Nike created_at:>=2026-01-01", "title:*shirt*". Страница first до 250 за один вызов дешевле по cost-бакету, чем много мелких страниц.
+Pagination is cursor-based; there are no page numbers. `first` up to 250 is usually more cost-efficient than many small pages. The result is limited to the fields listed here; media and metafields require `graphql_request`. Scope: `read_products`.
 
-Доступ также зависит от access scopes приложения и cost-бакета GraphQL: ACCESS_DENIED в ошибке — это не неверный токен, а отсутствующий scope у приложения.
+## Related MCP tools
 
-## Связанные MCP-инструменты
+- [Get a product](./get-product.md) — `get_product`
+- [Create a product](./create-product.md) — `create_product`
+- [Update a product](./update-product.md) — `update_product`
+- [Update variant prices](./update-variant.md) — `update_variant`
 
-- [Карточка товара](./get-product.md) — `get_product`
-- [Создать товар](./create-product.md) — `create_product`
-- [Изменить товар](./update-product.md) — `update_product`
-- [Изменить цены варианта](./update-variant.md) — `update_variant`
+## Technical details
 
-## Технические сведения
-
-- **Воздействие:** только чтение
-- **Группа:** Товары
-- **Источник описания:** регистрация `list_products` в `src/tools/products.ts`
-- [Все MCP-возможности](./index.md)
+- **Impact:** read-only
+- **Group:** Products
+- **Source:** `registerTool("list_products")` in `src/tools/products.ts`
+- [All capabilities](./index.md)
