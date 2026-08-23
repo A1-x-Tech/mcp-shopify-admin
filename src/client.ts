@@ -1000,16 +1000,17 @@ export class ShopifyAdminClient {
       input: {
         name: "available",
         reason: params.reason ?? "correction",
-        // No compare field is sent: in this API version InventorySetQuantityInput
-        // has only the optional `changeFromQuantity`, and omitting it is what
-        // makes the write unconditional — "set to N" regardless of what is
-        // there now, which is this tool's whole contract. (An earlier
-        // `ignoreCompareQuantity: true` here did not exist in the schema and
-        // made every call fail; introspection against a live store caught it.)
         quantities: params.quantities.map((q) => ({
           inventoryItemId: toGid("InventoryItem", q.inventoryItemId),
           locationId: toGid("Location", q.locationId),
           quantity: q.quantity,
+          // An EXPLICIT null is what opts out of the compare-and-set check,
+          // and opting out is this tool's whole contract: "set to N" whatever
+          // is there now. Omitting the key entirely is not the same thing —
+          // the API then demands a compareQuantity and refuses the write. The
+          // older way to say this, `ignoreCompareQuantity: true` on the input,
+          // is deprecated and disappears in API version 2026-04.
+          changeFromQuantity: null,
         })),
       },
     });

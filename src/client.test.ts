@@ -428,11 +428,19 @@ test("setInventoryQuantities sends only fields the input type actually has", asy
   // InventorySetQuantitiesInput is exactly {reason, name, referenceDocumentUri,
   // quantities}. Anything else fails the whole mutation.
   assert.deepEqual(Object.keys(input).sort(), ["name", "quantities", "reason"]);
+  // The explicit null is load-bearing: it is what opts out of the
+  // compare-and-set check. Dropping the key makes the API demand a
+  // compareQuantity and refuse the write — verified against a live store.
   assert.deepEqual(input.quantities, [
-    { inventoryItemId: "gid://shopify/InventoryItem/11", locationId: "gid://shopify/Location/22", quantity: 5 },
+    {
+      inventoryItemId: "gid://shopify/InventoryItem/11",
+      locationId: "gid://shopify/Location/22",
+      quantity: 5,
+      changeFromQuantity: null,
+    },
   ]);
-  // Omitting the compare field is what makes the set unconditional.
-  assert.equal("changeFromQuantity" in (input.quantities as object[])[0], false);
+  // The deprecated way to say the same thing; it is removed in 2026-04.
+  assert.equal("ignoreCompareQuantity" in input, false);
 });
 
 test("createBasicDiscountCode targets every buyer through context, not customerSelection", async () => {
