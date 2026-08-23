@@ -407,7 +407,13 @@ test("setInventoryQuantities refuses an empty list and negative quantities befor
   assert.equal(recorded.length, 0);
 });
 
-test("setInventoryQuantities sends the absolute-set contract: available, no compare check", async () => {
+/**
+ * Both shapes below are pinned against the LIVE schema, introspected from a
+ * real store: every field sent here exists on the input type, and the two that
+ * did not — `ignoreCompareQuantity` and `customerSelection` — are gone. A mock
+ * cannot catch their return, so these assertions are the guard.
+ */
+test("setInventoryQuantities sends only fields the input type actually has", async () => {
   const recorded: Recorded[] = [];
   const client = new ShopifyAdminClient(
     config(),
@@ -419,10 +425,27 @@ test("setInventoryQuantities sends the absolute-set contract: available, no comp
   const input = recorded[0].body.variables?.input as Record<string, unknown>;
   assert.equal(input.name, "available");
   assert.equal(input.reason, "correction");
-  assert.equal(input.ignoreCompareQuantity, true);
+  // InventorySetQuantitiesInput is exactly {reason, name, referenceDocumentUri,
+  // quantities}. Anything else fails the whole mutation.
+  assert.deepEqual(Object.keys(input).sort(), ["name", "quantities", "reason"]);
   assert.deepEqual(input.quantities, [
     { inventoryItemId: "gid://shopify/InventoryItem/11", locationId: "gid://shopify/Location/22", quantity: 5 },
   ]);
+  // Omitting the compare field is what makes the set unconditional.
+  assert.equal("changeFromQuantity" in (input.quantities as object[])[0], false);
+});
+
+test("createBasicDiscountCode targets every buyer through context, not customerSelection", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    config(),
+    scriptedFetch([gqlOk({ discountCodeBasicCreate: { codeDiscountNode: { id: "x" }, userErrors: [] } })], recorded),
+  );
+  await client.createBasicDiscountCode({ title: "Sale", code: "SALE", percentage: 0.2 });
+  const input = recorded[0].body.variables?.basicCodeDiscount as Record<string, unknown>;
+  assert.deepEqual(input.context, { all: "ALL" }, "DiscountBuyerSelection has exactly one value");
+  assert.equal("customerSelection" in input, false, "that field does not exist on the input type");
+  assert.deepEqual(input.customerGets, { value: { percentage: 0.2 }, items: { all: true } });
 });
 
 // --- Pure helpers ---

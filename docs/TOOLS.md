@@ -81,7 +81,7 @@ Customer records are read-only in dedicated tools; writes require `graphql_reque
 
 ### `set_inventory` — write
 
-`quantities: [{inventoryItemId, locationId, quantity}]`, up to 250 entries, plus `reason?` from Shopify's closed vocabulary (default: `correction`). Calls `inventorySetQuantities` with `name: "available"` and `ignoreCompareQuantity: true`: it sets the **absolute** available quantity — “become N,” not “change by N.” `inventoryItemId` comes from `get_product` and is not a variant id. Scope: `write_inventory`.
+`quantities: [{inventoryItemId, locationId, quantity}]`, up to 250 entries, plus `reason?` from Shopify's closed vocabulary (default: `correction`). Calls `inventorySetQuantities` with `name: "available"` and no compare field at all — omitting the optional `changeFromQuantity` is what makes the write unconditional, so it sets the **absolute** available quantity — “become N,” not “change by N.” `inventoryItemId` comes from `get_product` and is not a variant id. Scope: `write_inventory`.
 
 ## Discounts
 

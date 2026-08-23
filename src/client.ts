@@ -1000,7 +1000,12 @@ export class ShopifyAdminClient {
       input: {
         name: "available",
         reason: params.reason ?? "correction",
-        ignoreCompareQuantity: true,
+        // No compare field is sent: in this API version InventorySetQuantityInput
+        // has only the optional `changeFromQuantity`, and omitting it is what
+        // makes the write unconditional — "set to N" regardless of what is
+        // there now, which is this tool's whole contract. (An earlier
+        // `ignoreCompareQuantity: true` here did not exist in the schema and
+        // made every call fail; introspection against a live store caught it.)
         quantities: params.quantities.map((q) => ({
           inventoryItemId: toGid("InventoryItem", q.inventoryItemId),
           locationId: toGid("Location", q.locationId),
@@ -1047,7 +1052,12 @@ export class ShopifyAdminClient {
         endsAt: params.endsAt,
         usageLimit: params.usageLimit,
         appliesOncePerCustomer: params.appliesOncePerCustomer,
-        customerSelection: { all: true },
+        // Who the discount is for lives in `context`, not in the
+        // `customerSelection` field older guides describe — that field is
+        // absent from DiscountCodeBasicInput here, so sending it failed the
+        // whole mutation. `all` is the DiscountBuyerSelection enum, whose only
+        // value is ALL.
+        context: { all: "ALL" },
         customerGets: { value, items: { all: true } },
       }),
     });
