@@ -58,8 +58,9 @@ main().catch((err) => {
   if (err instanceof ConfigError || err instanceof CredentialsError) {
     console.error(`Проверку не запустить: ${err.message}`);
     console.error(
-        "Нужно задать SHOPIFY_STORE_DOMAIN (домен вида my-store.myshopify.com) и SHOPIFY_ACCESS_TOKEN " +
-        "(готовый Admin API access token Shopify).",
+        "Нужно задать SHOPIFY_STORE_DOMAIN (домен вида my-store.myshopify.com) и либо пару " +
+        "SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET приложения из Dev Dashboard, либо готовый " +
+        "SHOPIFY_ACCESS_TOKEN.",
     );
     process.exit(1);
   }

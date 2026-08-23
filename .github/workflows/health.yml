@@ -1,8 +1,10 @@
 name: Health check
 
-# End-to-end read-only check against the live Shopify Admin API. Auth is a static Admin API
-# access token from repo secrets. smoke makes NO mutations: it reads the shop and one short
-# page of products.
+# End-to-end read-only check against the live Shopify Admin API. Auth comes from repo secrets
+# by either path: the SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET pair of a Dev Dashboard app,
+# which the server exchanges for a 24-hour token itself, or a ready-made SHOPIFY_ACCESS_TOKEN
+# from a pre-2026 custom app, which wins when both are set. smoke makes NO mutations: it reads
+# the shop and one short page of products.
 #
 # Shopify's GraphQL cost bucket refills every second, so a daily run costs nothing lasting —
 # but there is no reason to poke a production store more often than that. Never on push/PR,
@@ -34,6 +36,10 @@ jobs:
         run: npm run smoke
         env:
           SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          # Set one of the two credential sets. An unset secret arrives as an empty string,
+          # which the server reads as absent, so the unused pair costs nothing.
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
           # Optional: pin a specific Admin API version for the check.
           SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}

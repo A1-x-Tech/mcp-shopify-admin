@@ -32,7 +32,7 @@ Nothing. This is a read-only request.
 
 ## Errors and limitations
 
-The store is fixed by `SHOPIFY_STORE_DOMAIN`; this tool cannot select another store. `ACCESS_DENIED` means the token is missing a scope, not that the token is necessarily invalid. The tool needs only a valid Admin API token and the scopes required by the fields Shopify returns.
+The store is fixed by `SHOPIFY_STORE_DOMAIN`; this tool cannot select another store. `ACCESS_DENIED` means the token is missing a scope, not that the token is necessarily invalid — with client credentials the added scope is picked up at the next token exchange, while a ready-made token has to be replaced by hand. The tool needs only working credentials — `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` of a Dev Dashboard app, which the server exchanges for a token itself, or a ready-made `SHOPIFY_ACCESS_TOKEN` — and the scopes required by the fields Shopify returns. A 401 means those credentials were rejected; `shop_not_permitted` means the app and the store belong to different Shopify organizations, which the `client_credentials` grant does not cross.
 
 ## Related MCP tools
 

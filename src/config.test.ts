@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  authMode,
   ConfigError,
   DEFAULT_API_VERSION,
   describeTarget,
@@ -167,6 +168,54 @@ test("describeTarget never leaks credentials embedded in the endpoint", () => {
   assert.equal(shown, "https://127.0.0.1:9000/graphql.json");
   // With a store domain configured it stays the friendly name.
   assert.equal(describeTarget(loadConfig(FULL as NodeJS.ProcessEnv)), "my-store.myshopify.com");
+});
+
+/**
+ * Admin-created custom apps stopped being issuable on 2026-01-01, so a store
+ * set up today has only the client_credentials path. Both must load, and a
+ * ready-made token must keep winning for the stores that still hold one.
+ */
+test("client credentials are a complete set of credentials on their own", () => {
+  const config = loadConfig({
+    SHOPIFY_STORE_DOMAIN: "my-store.myshopify.com",
+    SHOPIFY_CLIENT_ID: "cid",
+    SHOPIFY_CLIENT_SECRET: "csecret",
+  } as NodeJS.ProcessEnv);
+  assert.equal(config.clientId, "cid");
+  assert.equal(config.clientSecret, "csecret");
+  assert.equal(config.accessToken, undefined);
+  assert.equal(hasCredentials(config), true, "no ready-made token is needed");
+  assert.equal(authMode(config), "client_credentials");
+});
+
+test("half the pair is not a credential set", () => {
+  for (const half of [{ SHOPIFY_CLIENT_ID: "cid" }, { SHOPIFY_CLIENT_SECRET: "csecret" }]) {
+    const config = loadConfig({ SHOPIFY_STORE_DOMAIN: "my-store.myshopify.com", ...half } as NodeJS.ProcessEnv);
+    assert.equal(hasCredentials(config), false, JSON.stringify(half));
+    assert.equal(authMode(config), "none");
+  }
+});
+
+test("a ready-made token wins when both paths are configured", () => {
+  const config = loadConfig({
+    ...FULL,
+    SHOPIFY_CLIENT_ID: "cid",
+    SHOPIFY_CLIENT_SECRET: "csecret",
+  } as NodeJS.ProcessEnv);
+  assert.equal(authMode(config), "token");
+  assert.equal(hasCredentials(config), true);
+});
+
+test("the token leeway defaults to 300 seconds and can be overridden, zero included", () => {
+  assert.equal(loadConfig(FULL as NodeJS.ProcessEnv).tokenLeewaySeconds, 300);
+  assert.equal(
+    loadConfig({ ...FULL, SHOPIFY_TOKEN_LEEWAY_SECONDS: "0" } as NodeJS.ProcessEnv).tokenLeewaySeconds,
+    0,
+  );
+  assert.equal(
+    loadConfig({ ...FULL, SHOPIFY_TOKEN_LEEWAY_SECONDS: "soon" } as NodeJS.ProcessEnv).tokenLeewaySeconds,
+    300,
+  );
 });
 
 test("numeric overrides are honored; zero disables retries", () => {

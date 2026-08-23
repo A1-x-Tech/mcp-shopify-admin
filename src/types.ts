@@ -21,8 +21,28 @@ export interface ShopifyAdminConfig {
    * tool call answers with {@link CredentialsError} instead.
    */
   storeDomain?: string;
-  /** Ready-to-use Shopify Admin API access token. Treated as a secret. Optional, as above. */
+  /**
+   * A ready-made Admin API access token, used as-is and never refreshed. This
+   * is the legacy path: admin-created custom apps stopped being issuable on
+   * 2026-01-01, so only stores that already had one can still supply it.
+   * Treated as a secret. Optional, as above.
+   */
   accessToken?: string;
+  /**
+   * Client id of a Dev Dashboard app. With {@link clientSecret} the client
+   * mints its own token through the `client_credentials` grant and keeps it
+   * fresh — the only path available to a store set up today, where the minted
+   * token lives 24 hours. Ignored when {@link accessToken} is set.
+   */
+  clientId?: string;
+  /** Client secret of that app. Treated as a secret. */
+  clientSecret?: string;
+  /**
+   * How early to replace a minted token, in seconds. Defaults to 300: the
+   * grant issues 24-hour tokens, so a wide margin costs nothing and keeps a
+   * long-running session from ever presenting an expired one.
+   */
+  tokenLeewaySeconds?: number;
   /** Admin API version, `YYYY-MM` (quarterly) or `unstable`. */
   apiVersion: string;
   /**

@@ -177,14 +177,74 @@ test("dist server starts without credentials: handshake, tool list, actionable c
     assert.deepEqual(tools.map((tool) => tool.name).sort(), Object.keys(EXPECTED).sort());
 
     // A tool call fails with the exact message instead of killing the server.
+    // A tool call fails with the exact message instead of killing the server.
+    // Both authentication paths must be named: a store set up today can only
+    // use the client credentials, so pointing only at the retired ready-made
+    // token would send the operator somewhere they cannot go.
     const result = await client.callTool({ name: "get_shop", arguments: {} });
     assert.equal(result.isError, true);
     const text = result.content.map((c) => c.text ?? "").join(" ");
     assert.match(text, /Требуются SHOPIFY_STORE_DOMAIN/);
+    assert.match(text, /SHOPIFY_CLIENT_ID/);
+    assert.match(text, /SHOPIFY_CLIENT_SECRET/);
     assert.match(text, /SHOPIFY_ACCESS_TOKEN/);
     assert.match(text, /перезапустите сервер/);
   } finally {
     await client.close();
+  }
+});
+
+/**
+ * The client-credentials path must be usable end to end from the built
+ * artifact, not just from src: the server has to reach the grant on the store
+ * host, present the token it gets back, and never send the client secret to
+ * the API. A tiny store stands in for Shopify — it serves both routes.
+ */
+test("dist server authenticates with client credentials and signs the call with the minted token", async () => {
+  const { createServer } = await import("node:http");
+  const seen = [];
+  const store = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      if (req.url.includes("/admin/oauth/access_token")) {
+        const form = new URLSearchParams(raw);
+        seen.push({ kind: "mint", grant: form.get("grant_type"), clientId: form.get("client_id") });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ access_token: "minted-by-dist", expires_in: 86399 }));
+      }
+      seen.push({ kind: "api", token: req.headers["x-shopify-access-token"], body: raw });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ data: { shop: { name: "Dist Store" }, productsCount: { count: 2 }, locations: { nodes: [] } } }));
+    });
+  });
+  await new Promise((resolve) => store.listen(0, "127.0.0.1", resolve));
+  const port = store.address().port;
+
+  const client = await connectToDist(
+    {
+      SHOPIFY_API_BASE: `http://127.0.0.1:${port}/graphql.json`,
+      SHOPIFY_CLIENT_ID: "cid-dist",
+      SHOPIFY_CLIENT_SECRET: "csecret-dist",
+    },
+    "dist-smoke-client-credentials",
+  );
+  try {
+    const result = await client.callTool({ name: "get_shop", arguments: {} });
+    assert.equal(result.isError, undefined, "the call must succeed on a minted token");
+    const text = result.content.map((c) => c.text ?? "").join(" ");
+    assert.match(text, /Dist Store/);
+
+    const mints = seen.filter((s) => s.kind === "mint");
+    const calls = seen.filter((s) => s.kind === "api");
+    assert.equal(mints.length, 1, "exactly one exchange");
+    assert.equal(mints[0].grant, "client_credentials");
+    assert.equal(mints[0].clientId, "cid-dist");
+    assert.equal(calls[0].token, "minted-by-dist", "the API is signed with what the grant returned");
+    assert.equal(calls[0].body.includes("csecret-dist"), false, "the secret never travels to the API");
+  } finally {
+    await client.close();
+    await new Promise((resolve) => store.close(resolve));
   }
 });
 

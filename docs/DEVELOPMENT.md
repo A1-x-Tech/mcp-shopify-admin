@@ -21,13 +21,20 @@ npm run smoke      # live READ-ONLY calls: shop and one short products page
 
 `CODE
 npm run build
-SHOPIFY_STORE_DOMAIN=my-store.myshopify.com SHOPIFY_ACCESS_TOKEN=shpat_... node dist/index.js
-# optional: SHOPIFY_API_VERSION, SHOPIFY_TIMEOUT_MS, SHOPIFY_MAX_RETRIES, SHOPIFY_API_BASE
+SHOPIFY_STORE_DOMAIN=my-store.myshopify.com \
+  SHOPIFY_CLIENT_ID=your_client_id SHOPIFY_CLIENT_SECRET=your_client_secret \
+  node dist/index.js
+# legacy path: a ready-made SHOPIFY_ACCESS_TOKEN=shpat_... instead of the pair
+# optional: SHOPIFY_API_VERSION, SHOPIFY_TIMEOUT_MS, SHOPIFY_MAX_RETRIES, SHOPIFY_TOKEN_LEEWAY_SECONDS, SHOPIFY_API_BASE
 `
 
-`npm run smoke` needs a current Admin API access token and makes two reads — the shop and one short page of products — without mutations. Orders and customers are deliberately not touched because their scopes are often absent on a fresh token. Prefer a [Shopify development store](https://shopify.dev/docs/apps/build/dev-dashboard/stores/development-stores), or point `SHOPIFY_API_BASE` at a mock.
+With the client ID and secret the server runs the `client_credentials` grant itself against `https://{store}.myshopify.com/admin/oauth/access_token` on the first call. Shopify issues that token for 24 hours; it is cached in memory and never written to disk, re-minted `SHOPIFY_TOKEN_LEEWAY_SECONDS` (default 300) before it expires and once more when a request answers 401, and parallel tool calls share one exchange. The grant works only while the app and the store belong to the same Shopify organization — a mismatch answers `shop_not_permitted`, which no retry and no re-issued secret fixes.
 
-The server accepts a ready-to-use token; it does not implement Shopify OAuth or token refresh. Tokens from new Dev Dashboard apps expire, so renew one outside the server before restarting it.
+A ready-made `SHOPIFY_ACCESS_TOKEN` is still accepted for stores holding an admin-created custom app from before 2026-01-01: it is sent as-is, never refreshed, and wins when both are set.
+
+`npm run smoke` needs working credentials (the client ID and secret, or a ready-made token) and makes two reads — the shop and one short page of products — without mutations. Orders and customers are deliberately not touched because their scopes are often absent on a fresh app. Prefer a [Shopify development store](https://shopify.dev/docs/apps/build/dev-dashboard/stores/development-stores), or point `SHOPIFY_API_BASE` at a mock.
+
+`SHOPIFY_API_BASE` replaces the whole GraphQL endpoint, and the grant URL is derived from that endpoint's origin. A mock driven with the client-credentials pair therefore has to serve both `POST /admin/oauth/access_token` (answering `access_token` and `expires_in`) and the GraphQL endpoint itself; a mock that only speaks GraphQL works with `SHOPIFY_ACCESS_TOKEN`.
 
 ## Tests
 

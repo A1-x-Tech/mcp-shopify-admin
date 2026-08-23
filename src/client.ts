@@ -29,12 +29,15 @@ export const DEFAULT_USER_AGENT = "mcp-shopify-admin";
  */
 const MISSING_STORE_DOMAIN_TEXT =
   "Требуется SHOPIFY_STORE_DOMAIN — постоянный домен магазина вида my-store.myshopify.com.";
-const MISSING_ACCESS_TOKEN_TEXT =
-  "Требуется SHOPIFY_ACCESS_TOKEN — готовый Admin API access token Shopify (например, shpat_…). Сервер не получает и не обновляет токены сам.";
+const MISSING_AUTH_TEXT =
+  "Требуются учётные данные Shopify: либо SHOPIFY_CLIENT_ID и SHOPIFY_CLIENT_SECRET приложения из Dev Dashboard " +
+  "(сервер сам получит токен и будет обновлять его — это единственный путь для магазина, настраиваемого сегодня), " +
+  "либо готовый SHOPIFY_ACCESS_TOKEN, если у вас сохранилось приложение, созданное в админке до 2026-01-01.";
 
 /** The same variables as list items for the combined «Требуются X и Y» message. */
 const LISTED_STORE_DOMAIN = "SHOPIFY_STORE_DOMAIN (постоянный домен магазина my-store.myshopify.com)";
-const LISTED_ACCESS_TOKEN = "SHOPIFY_ACCESS_TOKEN (готовый Admin API access token Shopify)";
+const LISTED_AUTH =
+  "SHOPIFY_CLIENT_ID и SHOPIFY_CLIENT_SECRET (приложение Dev Dashboard) или SHOPIFY_ACCESS_TOKEN (готовый токен)";
 
 /**
  * The full CredentialsError message for this config, or undefined when every
@@ -59,7 +62,11 @@ function missingCredentialsMessage(config: ShopifyAdminConfig): string | undefin
   // The endpoint stands in for the domain: an explicit SHOPIFY_API_BASE
   // override supplies it without any domain at all.
   if (!config.endpoint) missing.push({ single: MISSING_STORE_DOMAIN_TEXT, listed: LISTED_STORE_DOMAIN });
-  if (!config.accessToken) missing.push({ single: MISSING_ACCESS_TOKEN_TEXT, listed: LISTED_ACCESS_TOKEN });
+  // Either authentication path satisfies this; the client prefers a ready-made
+  // token and mints one from the client credentials otherwise.
+  if (!config.accessToken && !(config.clientId && config.clientSecret)) {
+    missing.push({ single: MISSING_AUTH_TEXT, listed: LISTED_AUTH });
+  }
   if (missing.length === 0) return undefined;
 
   const what =
@@ -521,10 +528,17 @@ interface RawConnection<T> {
  */
 export class ShopifyAdminClient {
   private readonly endpoint?: string;
+  private readonly tokenEndpoint?: string;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly retryBaseMs: number;
+  private readonly leewayMs: number;
   private readonly userAgent: string;
+
+  /** The minted token, cached in memory only — never written to disk. */
+  private token?: { value: string; expiresAt: number };
+  /** In-flight mint, so parallel tool calls share one exchange. */
+  private tokenRequest?: Promise<string>;
 
   constructor(
     private readonly config: ShopifyAdminConfig,
@@ -534,9 +548,97 @@ export class ShopifyAdminClient {
     this.timeoutMs = config.timeoutMs ?? 30_000;
     this.maxRetries = config.maxRetries ?? 4;
     this.retryBaseMs = config.retryBaseMs ?? 500;
+    this.leewayMs = (config.tokenLeewaySeconds ?? 300) * 1000;
+    // The grant lives on the store host next to the API, not under it, so it
+    // is derived from the endpoint's origin — which keeps a mock self-consistent.
+    this.tokenEndpoint = config.endpoint
+      ? new URL("/admin/oauth/access_token", config.endpoint).toString()
+      : undefined;
     // Node's fetch would otherwise send `User-Agent: node`, which is
     // indistinguishable from any other script in Shopify's logs.
     this.userAgent = config.userAgent ?? DEFAULT_USER_AGENT;
+  }
+
+  // --- Auth ---
+
+  /** Whether this client can mint its own tokens (as opposed to being handed one). */
+  private get canMint(): boolean {
+    return Boolean(this.config.clientId && this.config.clientSecret && this.tokenEndpoint);
+  }
+
+  /**
+   * The token to sign the next request with.
+   *
+   * A ready-made `SHOPIFY_ACCESS_TOKEN` is returned as-is — it is the operator's
+   * to manage. Otherwise the client_credentials grant mints one, cached until
+   * `leeway` before it expires. Concurrent callers share one in-flight request
+   * so a burst of parallel tool calls mints exactly one token; a failed mint is
+   * not cached.
+   */
+  private async authToken(): Promise<string> {
+    if (this.config.accessToken) return this.config.accessToken;
+    if (this.token && Date.now() < this.token.expiresAt - this.leewayMs) return this.token.value;
+    if (!this.tokenRequest) {
+      this.tokenRequest = this.fetchToken().finally(() => {
+        this.tokenRequest = undefined;
+      });
+    }
+    return this.tokenRequest;
+  }
+
+  /** Drops the cached token so the next call mints a fresh one (used on a 401). */
+  private forgetToken(): void {
+    this.token = undefined;
+  }
+
+  /**
+   * Exchanges the client credentials for an access token. Shopify issues these
+   * for 24 hours (`expires_in` 86399) and only when the app and the store sit
+   * in the same organization — a mismatch answers `shop_not_permitted`, which
+   * no retry can fix, so this never retries.
+   */
+  private async fetchToken(): Promise<string> {
+    const { clientId, clientSecret } = this.config;
+    // send() rejects missing credentials before minting; repeated here, where
+    // the types demand it, so no future caller can post blanks to the grant.
+    if (!clientId || !clientSecret || !this.tokenEndpoint) {
+      throw new CredentialsError(missingCredentialsMessage(this.config) ?? MISSING_AUTH_TEXT);
+    }
+
+    const body = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }).toString();
+
+    const { res, text } = await this.fetchWithTimeout(this.tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+        "User-Agent": this.userAgent,
+      },
+      body,
+    });
+
+    const data = parseBody(text);
+    if (!res.ok) {
+      throw new ShopifyAdminError(res.status, data, "Не удалось получить токен по client_credentials", {
+        retryAfter: retryAfterSeconds(res),
+        kind: "authentication",
+      });
+    }
+
+    const parsed = (data ?? {}) as { access_token?: unknown; expires_in?: unknown };
+    if (typeof parsed.access_token !== "string" || !parsed.access_token) {
+      throw new ShopifyAdminError(res.status, data, "В ответе client_credentials нет access_token", {
+        kind: "authentication",
+      });
+    }
+    // Shopify sends 86399; the fallback only matters if it ever stops.
+    const expiresIn = typeof parsed.expires_in === "number" ? parsed.expires_in : 86_399;
+    this.token = { value: parsed.access_token, expiresAt: Date.now() + expiresIn * 1000 };
+    return parsed.access_token;
   }
 
   /** The store every call is scoped to (from config, never from a tool), or undefined on a degraded start. */
@@ -584,16 +686,21 @@ export class ShopifyAdminClient {
     const payload = JSON.stringify(
       compact({ query, variables, operationName } as Record<string, unknown>),
     );
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "X-Shopify-Access-Token": this.config.accessToken as string,
-      "User-Agent": this.userAgent,
-    };
 
     let attempt = 0;
+    let tokenRefreshed = false;
 
     for (;;) {
+      // Fetched per attempt, not once: a long retry ladder can outlive a
+      // minted token, and this is what re-mints it after a 401 below.
+      const token = await this.authToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Shopify-Access-Token": token,
+        "User-Agent": this.userAgent,
+      };
+
       let res: Response;
       let text: string;
       try {
@@ -611,6 +718,17 @@ export class ShopifyAdminClient {
 
       const body = parseBody(text);
       const cost = costInfo(body);
+
+      // 401 on a token we minted: it was revoked or expired earlier than
+      // advertised. Drop it and repeat once — this costs no retry, and a
+      // second 401 falls through to the error below instead of looping. A
+      // ready-made token is not re-minted: nothing would change, and the
+      // operator is the one who has to replace it.
+      if (res.status === 401 && !tokenRefreshed && this.canMint && !this.config.accessToken) {
+        tokenRefreshed = true;
+        this.forgetToken();
+        continue;
+      }
 
       // HTTP 429 means the call was refused outright, so repeating it is safe
       // even for mutations; 5xx is only safe to repeat for queries.

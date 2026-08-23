@@ -34,7 +34,7 @@ A query reads data, but a mutation can create, update, publish, cancel, or delet
 
 ## Errors and limitations
 
-The server supplies the configured store, token, and API version. It detects the operation kind by parsing the document, so fragments before a mutation are handled safely; an unparseable document is treated as a mutation and is not replayed after 5xx or network errors. `operationName` is required for multiple operations. Shopify rejects documents costing more than 1,000 points.
+The server supplies the configured store, the access token — ready-made or minted from the client credentials and refreshed automatically — and the API version. It detects the operation kind by parsing the document, so fragments before a mutation are handled safely; an unparseable document is treated as a mutation and is not replayed after 5xx or network errors. `operationName` is required for multiple operations. Shopify rejects documents costing more than 1,000 points.
 
 ## Related MCP tools
 

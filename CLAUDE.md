@@ -2,10 +2,16 @@
 
 MCP server for the **Shopify Admin API** (GraphQL — the store admin, *not* the Storefront API),
 TypeScript over stdio. One endpoint
-`https://{store}.myshopify.com/admin/api/{version}/graphql.json`; auth is a static
-`X-Shopify-Access-Token` (a ready-to-use Admin API access token — this server performs no OAuth
-exchange or refresh), the store host from `SHOPIFY_STORE_DOMAIN`, the version from
-`SHOPIFY_API_VERSION` (default pinned in `config.ts`). The API is metered by a **GraphQL cost bucket** (per-query cost, `restoreRate`
+`https://{store}.myshopify.com/admin/api/{version}/graphql.json`; every request is signed with an
+`X-Shopify-Access-Token`, and that token comes from one of two paths. `SHOPIFY_CLIENT_ID` +
+`SHOPIFY_CLIENT_SECRET` of a Dev Dashboard app is the recommended one: the client runs the
+`client_credentials` grant itself against
+`https://{store}.myshopify.com/admin/oauth/access_token` and keeps the token (24 hours) fresh —
+the only path open to a store set up today, since admin-created custom apps stopped being issuable
+on 2026-01-01. A ready-made `SHOPIFY_ACCESS_TOKEN` is still accepted, used as-is and never
+refreshed, for stores that already hold such a token; it wins when both are set. The store host
+comes from `SHOPIFY_STORE_DOMAIN`, the version from `SHOPIFY_API_VERSION` (default pinned in
+`config.ts`). The API is metered by a **GraphQL cost bucket** (per-query cost, `restoreRate`
 points restored per second) reported in `extensions.cost` of every response.
 
 ## Commands
@@ -15,14 +21,18 @@ npm run dev        # run from source (tsx watch)
 npm test           # unit tests + a dist smoke probe, no network
 npm run typecheck  # types for src + tests
 npm run build      # emit dist/
-npm run smoke      # live READ-ONLY calls (needs the two required env vars)
+npm run smoke      # live READ-ONLY calls (needs the store domain + credentials)
 ```
 
 ## Architecture
 
-- `src/config.ts` — env → config. Missing `SHOPIFY_STORE_DOMAIN` / `SHOPIFY_ACCESS_TOKEN`
+- `src/config.ts` — env → config. Missing `SHOPIFY_STORE_DOMAIN` / credentials
   (empty string = absent) is NOT an error: the fields stay `undefined`, the server starts
   degraded and the client raises `CredentialsError` (lives in `types.ts`) at call time.
+  `hasCredentials(config)` is satisfied by either auth path — a ready-made `SHOPIFY_ACCESS_TOKEN`
+  or the `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET` pair the client can mint one with — and
+  `authMode(config)` names which one is in play (`token` / `client_credentials` / `none`) for the
+  startup line and telemetry, since the two behave differently when a token goes stale.
   `ConfigError` (with a `reason` code) is reserved for malformed values —
   `invalid_store_domain` (only `*.myshopify.com` hosts: silently sending the token to a foreign
   host is how tokens leak; a bare handle or pasted URL normalizes cleanly), `invalid_api_version`
@@ -31,7 +41,8 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   config. `describeTarget(config)` is the only shape of the target that may be printed: the store
   domain, else the endpoint reduced to origin + path, so nothing a URL may carry (a
   `user:password@`, a token in the path) reaches stderr. Optional `SHOPIFY_API_VERSION`,
-  `SHOPIFY_TIMEOUT_MS`, `SHOPIFY_MAX_RETRIES`, `SHOPIFY_API_BASE` (full endpoint override; also
+  `SHOPIFY_TIMEOUT_MS`, `SHOPIFY_MAX_RETRIES`, `SHOPIFY_TOKEN_LEEWAY_SECONDS` (how early a minted
+  token is replaced, default 300), `SHOPIFY_API_BASE` (full endpoint override; also
   satisfies `hasCredentials` without a domain, for mocks).
 - `src/types.ts` — config, `CostInfo` (flattened `extensions.cost`),
   `ApiResponse<T> = {data, cost}`, `ConnectionPage<T>` (`{count, items, hasNextPage, endCursor}`),
@@ -39,7 +50,17 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   the tools build zod enums from, `ShopifyAdminError`, `MutationError`, `ValidationError`,
   `CredentialsError`.
 - `src/client.ts` — the GraphQL documents (compact selections: the consumer is an LLM) and one
-  transport. `send()` first rejects a missing credential with `CredentialsError` (before retries
+  transport. The **`--- Auth ---`** section owns the token: `authToken()` returns a ready-made
+  `SHOPIFY_ACCESS_TOKEN` untouched, otherwise the cached minted one while it is still more than
+  the leeway away from expiry, otherwise the in-flight mint — the promise is stored, so a burst of
+  parallel tool calls shares one exchange and a failed mint is never cached. `fetchToken()` posts
+  the `client_credentials` grant to `/admin/oauth/access_token` (derived from the endpoint's
+  origin, which keeps a mock self-consistent) and caches `{value, expiresAt}` **in memory only,
+  never on disk**; it never retries, because its characteristic failure —
+  `shop_not_permitted`, the app and the store sitting in different Shopify organizations — is not
+  transient (`tools/util.ts` turns it into exactly that hint). `forgetToken()` drops the cache so
+  the next attempt mints afresh; `send()` fetches the token per attempt, since a long retry ladder
+  can outlive one. `send()` first rejects a missing credential with `CredentialsError` (before retries
   and fetch — the message is the product: it names the variables and the needed restart, or, when
   `configProblem` is set, the malformed variable instead of the credentials), then POSTs with an
   AbortController timeout that also covers reading the body, retries with backoff, lifts
@@ -64,7 +85,7 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   `unconfigured_start` (with the reason) otherwise.
 - `src/telemetry.ts` — anonymous usage pings (ids/names/versions only, never data or arguments;
   fire-and-forget, must never block or throw; opt-out `ASKADS_TELEMETRY=0`). Reasons are a closed
-  vocabulary (`missing_store_domain`, `missing_access_token`, `invalid_store_domain`,
+  vocabulary (`missing_store_domain`, `missing_credentials`, `invalid_store_domain`,
   `invalid_api_version`, `invalid_api_base`) — never a variable's name or value.
 
 ## Conventions (do not break)
@@ -77,12 +98,21 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
   `CredentialsError` — its message names the variables to set and says to restart, because
   credentials come only from the environment (there are no login tools). A malformed value
   degrades the same way, but the call-time message then names **the variable that actually
-  broke** (carried as `configProblem`) instead of the two credential variables the operator
+  broke** (carried as `configProblem`) instead of the credential variables the operator
   usually set correctly. `config.test.ts`, `client.test.ts` and `test/dist-smoke.test.js` pin
   this.
 - **Credential failures are not transport failures.** `CredentialsError` is thrown before the
   retry/backoff branch and fetch itself in the client's `send()`. Pinned by "fetch must not be
   called" assertions in `client.test.ts`.
+- **A ready-made token is the operator's; a minted one is the client's.** `SHOPIFY_ACCESS_TOKEN`
+  is sent as-is and is **never** re-minted — not even on a 401: the client has nothing to exchange
+  and nothing would change, so the error must reach the operator, who is the only one who can
+  replace that token. A token the client minted itself is different: a 401 means it was revoked or
+  expired earlier than advertised, so it is dropped (`forgetToken()`) and re-minted **exactly
+  once** per `send()` — it costs no retry attempt, and a second 401 falls through to the error
+  instead of looping. When both credential sets are present the ready-made token wins, and the
+  startup line says which mode is running, because "the token went stale" has a different fix in
+  each.
 - **The store is config, never an argument.** No tool takes a store or token; the endpoint is
   built once from the config, and `normalizeStoreDomain` refuses any host that is not
   `*.myshopify.com` — the token must never travel to a foreign host. `SHOPIFY_API_BASE` is
@@ -109,8 +139,10 @@ npm run smoke      # live READ-ONLY calls (needs the two required env vars)
 - **Surface `cost`.** Client methods return `{data, cost}` and tools pass that envelope straight
   to `ok`, so the agent always sees the bucket state. Say so in tool descriptions. Failures
   carry it too: `ShopifyAdminError` holds the cost block and the computed wait, and `fail()`
-  appends both — plus the auth hints (401 = token, ACCESS_DENIED = a missing *scope*, 404 = the
-  store host, 402/423 = the store's standing with Shopify).
+  appends both — plus the auth hints (401 = the credentials of whichever path is in use,
+  `shop_not_permitted` = the app and the store are in different Shopify organizations,
+  ACCESS_DENIED = a missing *scope*, 404 = the store host, 402/423 = the store's standing with
+  Shopify).
 - **The API surface is narrow — say so in the descriptions.** No order creation or fulfillment,
   no customer writes (PII), no variant creation, no media, no targeted discounts; descriptions
   name `graphql_request` as the covered escape hatch so the model does not hunt for tools that

@@ -2,7 +2,7 @@
 
 This catalog contains 16 public pages — one for every registered MCP tool in `mcp-shopify-admin`. Each page starts with the user's task, explains the result, and states whether the call changes real Shopify data.
 
-The server is bound to one store through `SHOPIFY_STORE_DOMAIN`; every result carries the GraphQL cost-bucket state.
+The server is bound to one store through `SHOPIFY_STORE_DOMAIN`; every result carries the GraphQL cost-bucket state. Authentication takes either path: `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` of a Dev Dashboard app, which the server exchanges for a 24-hour token and re-mints on its own, or a ready-made `SHOPIFY_ACCESS_TOKEN` used as-is.
 
 ## Shop
 

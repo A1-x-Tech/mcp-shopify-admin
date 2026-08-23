@@ -90,12 +90,20 @@ function authHint(err: ShopifyAdminError): string | undefined {
     return (
       "токен действителен, но у приложения нет нужного access scope: добавьте scope в конфигурации " +
       "приложения, установите новую версию или переустановите приложение по правилам вашего Shopify " +
-      "auth flow, затем обновите SHOPIFY_ACCESS_TOKEN"
+      "auth flow. При client_credentials новый scope подхватится сам при следующем обмене; готовый " +
+      "SHOPIFY_ACCESS_TOKEN нужно обновить вручную"
     );
+  }
+  // The grant refuses outright when the app and the store sit in different
+  // Shopify organizations, and no amount of re-issuing credentials fixes it.
+  // Matched on the message too: an OAuth failure is `{"error": "..."}`, not a
+  // GraphQL error, so it never populates `code`.
+  if (`${err.code ?? ""} ${err.message}`.includes("shop_not_permitted")) {
+    return "приложение и магазин должны принадлежать одной организации Shopify — client_credentials работает только внутри неё";
   }
   switch (err.status) {
     case 401:
-      return "токен отклонён: стоит проверить SHOPIFY_ACCESS_TOKEN (готовый Admin API access token Shopify)";
+      return "учётные данные отклонены: при client_credentials проверьте SHOPIFY_CLIENT_ID и SHOPIFY_CLIENT_SECRET, при готовом токене — SHOPIFY_ACCESS_TOKEN";
     case 402:
       return "магазин заморожен из-за проблемы с оплатой тарифа Shopify — API вернётся после оплаты";
     case 404:

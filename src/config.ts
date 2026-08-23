@@ -46,9 +46,20 @@ function nonNegativeNumber(raw: string | undefined, fallback: number): number {
   return raw !== undefined && raw !== "" && Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-/** True when everything a request needs is present (an endpoint to hit and a token to sign it). */
+/**
+ * True when everything a request needs is present: an endpoint to hit, and a
+ * way to sign it — either a ready-made token or the client credentials the
+ * client can mint one with.
+ */
 export function hasCredentials(config: ShopifyAdminConfig): boolean {
-  return Boolean(config.accessToken && config.endpoint);
+  return Boolean(config.endpoint && (config.accessToken || (config.clientId && config.clientSecret)));
+}
+
+/** Which authentication path this config uses, for logs and telemetry. */
+export function authMode(config: ShopifyAdminConfig): "token" | "client_credentials" | "none" {
+  if (config.accessToken) return "token";
+  if (config.clientId && config.clientSecret) return "client_credentials";
+  return "none";
 }
 
 /**
@@ -111,16 +122,28 @@ export function normalizeStoreDomain(raw: string): string {
  * still throws ConfigError, because guessing what the user meant is worse —
  * index.ts catches it and degrades instead of exiting.
  *
- *   SHOPIFY_STORE_DOMAIN   my-store.myshopify.com (or the bare store name)
- *   SHOPIFY_ACCESS_TOKEN   Ready-to-use Shopify Admin API access token
- *   SHOPIFY_API_VERSION    YYYY-MM quarterly release or unstable (default 2026-01)
- *   SHOPIFY_TIMEOUT_MS     per-request timeout (default 30000)
- *   SHOPIFY_MAX_RETRIES    retries for THROTTLED (always) and 5xx/network on reads (default 4)
- *   SHOPIFY_API_BASE       full GraphQL endpoint override, e.g. a local mock
+ * Authentication takes either path, and a ready-made token wins when both are
+ * present. `SHOPIFY_ACCESS_TOKEN` is the legacy one: admin-created custom apps
+ * stopped being issuable on 2026-01-01, so only stores that already hold such
+ * a token can use it. A store set up today registers an app in the Dev
+ * Dashboard and supplies `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET`, which
+ * the client exchanges for a token that lives 24 hours and re-mints as needed.
+ *
+ *   SHOPIFY_STORE_DOMAIN           my-store.myshopify.com (or the bare store name)
+ *   SHOPIFY_ACCESS_TOKEN           ready-made Admin API access token (legacy apps)
+ *   SHOPIFY_CLIENT_ID              client id of a Dev Dashboard app
+ *   SHOPIFY_CLIENT_SECRET          client secret of that app
+ *   SHOPIFY_API_VERSION            YYYY-MM quarterly release or unstable (default 2026-01)
+ *   SHOPIFY_TIMEOUT_MS             per-request timeout (default 30000)
+ *   SHOPIFY_MAX_RETRIES            retries for THROTTLED (always) and 5xx/network on reads (default 4)
+ *   SHOPIFY_TOKEN_LEEWAY_SECONDS   re-mint a token this early (default 300)
+ *   SHOPIFY_API_BASE               full GraphQL endpoint override, e.g. a local mock
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ShopifyAdminConfig {
   // An empty string reads as absent, never as an empty credential.
   const accessToken = env.SHOPIFY_ACCESS_TOKEN || undefined;
+  const clientId = env.SHOPIFY_CLIENT_ID || undefined;
+  const clientSecret = env.SHOPIFY_CLIENT_SECRET || undefined;
 
   const domainRaw = (env.SHOPIFY_STORE_DOMAIN ?? "").trim();
   const storeDomain = domainRaw ? normalizeStoreDomain(domainRaw) : undefined;
@@ -165,9 +188,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ShopifyAdminCo
   return {
     storeDomain,
     accessToken,
+    clientId,
+    clientSecret,
     apiVersion,
     endpoint,
     timeoutMs: positiveNumber(env.SHOPIFY_TIMEOUT_MS, 30_000),
     maxRetries: nonNegativeNumber(env.SHOPIFY_MAX_RETRIES, 4),
+    tokenLeewaySeconds: nonNegativeNumber(env.SHOPIFY_TOKEN_LEEWAY_SECONDS, 300),
   };
 }

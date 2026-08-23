@@ -8,13 +8,13 @@
     "url": "https://github.com/A1-x-Tech/mcp-shopify-admin",
     "source": "github"
   },
-  "version": "1.0.1",
+  "version": "1.1.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "mcp-shopify-admin",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -26,8 +26,19 @@
         },
         {
           "name": "SHOPIFY_ACCESS_TOKEN",
-          "description": "Ready-to-use Shopify Admin API access token. This server does not perform OAuth or refresh it; treat it as a secret.",
-          "isRequired": true,
+          "description": "Ready-made Admin API access token (legacy apps created before 2026-01-01). Alternative to the client id/secret pair.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SHOPIFY_CLIENT_ID",
+          "description": "Client id of a Dev Dashboard app; with the secret the server mints and refreshes its own token.",
+          "isRequired": false
+        },
+        {
+          "name": "SHOPIFY_CLIENT_SECRET",
+          "description": "Client secret of that app. Treat it as a secret.",
+          "isRequired": false,
           "isSecret": true
         },
         {
@@ -52,6 +63,12 @@
           "description": "Retries on THROTTLED/429 (always) and on 5xx / network errors for reads only.",
           "isRequired": false,
           "default": "4"
+        },
+        {
+          "name": "SHOPIFY_TOKEN_LEEWAY_SECONDS",
+          "description": "Re-mint the token this many seconds before it expires.",
+          "isRequired": false,
+          "default": "300"
         }
       ]
     }

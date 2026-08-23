@@ -9,7 +9,8 @@
 
 **A1 Shopify Admin MCP** connects AI applications to one Shopify store through the Admin GraphQL API. Ask in plain language about products, orders, customers, inventory, discounts, and shop data; the assistant uses the server's ready-made tools and shows the result.
 
-- **One store per server.** The store domain and access token come from configuration; tools cannot switch to another store.
+- **One store per server.** The store domain and credentials come from configuration; tools cannot switch to another store.
+- **Tokens stay fresh.** Give the server the client ID and secret of a Shopify Dev Dashboard app and it mints the Admin API token itself, keeps it in memory only, and re-mints it before the 24-hour expiry. A ready-made token from an older custom app still works too.
 - **16 focused tools.** Read shop data, products, orders, customers, locations, inventory, and discounts, plus create or update the supported records.
 - **GraphQL failures are surfaced.** Shopify can return HTTP 200 for a failed mutation, so the server checks `userErrors` and rejects empty or malformed GraphQL responses.
 - **Cost-aware responses.** Every result includes the GraphQL cost bucket: the cost of the request and the points currently available for the next calls.
@@ -48,13 +49,15 @@ Start with a read-only request:
 
 ## Quick start
 
-You need Node.js 20+, a store domain such as `my-store.myshopify.com`, and a valid Shopify Admin API access token. This server accepts a ready-to-use token through `SHOPIFY_ACCESS_TOKEN`; it does not perform OAuth, client-credentials exchange, or token refresh.
+You need Node.js 20+, a store domain such as `my-store.myshopify.com`, and Admin API credentials. The recommended set is the client ID and secret of a [Shopify Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard) app: the server exchanges them for an access token itself and keeps that token fresh, which matters because the token Shopify issues for this grant expires after 24 hours. The app and the store must belong to the same Shopify organization.
 
-1. [Get access](#getting-access) and prepare a current Admin API access token.
+1. [Get access](#getting-access) and prepare the app's client ID and client secret.
 2. Add the MCP server to your AI application.
 3. Send the safe request from the opening section.
 
 The server runs locally over stdio through `npx`. Browser-only ChatGPT and Claude web sessions cannot start a local stdio process directly.
+
+Every snippet below uses that pair. If your store still holds a ready-made token from an admin-created custom app, replace `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` with a single `SHOPIFY_ACCESS_TOKEN` — see [Getting access](#getting-access).
 
 <details open>
 <summary><strong>Codex</strong></summary>
@@ -65,14 +68,15 @@ The server runs locally over stdio through `npx`. Browser-only ChatGPT and Claud
 
 1. Open **Settings → Plugins → MCP servers**.
 2. Select **Add server**.
-3. Add `npx -y mcp-shopify-admin@latest` and set `SHOPIFY_STORE_DOMAIN` and `SHOPIFY_ACCESS_TOKEN`.
+3. Add `npx -y mcp-shopify-admin@latest` and set `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_CLIENT_ID`, and `SHOPIFY_CLIENT_SECRET`.
 
 **Through the CLI:**
 
 ```bash
 codex mcp add shopify-admin \
   --env SHOPIFY_STORE_DOMAIN=my-store.myshopify.com \
-  --env SHOPIFY_ACCESS_TOKEN=shpat_your_token \
+  --env SHOPIFY_CLIENT_ID=your_client_id \
+  --env SHOPIFY_CLIENT_SECRET=your_client_secret \
   -- npx -y mcp-shopify-admin@latest
 
 codex mcp list
@@ -90,7 +94,8 @@ codex mcp list
 ```bash
 claude mcp add \
   --env SHOPIFY_STORE_DOMAIN=my-store.myshopify.com \
-  --env SHOPIFY_ACCESS_TOKEN=shpat_your_token \
+  --env SHOPIFY_CLIENT_ID=your_client_id \
+  --env SHOPIFY_CLIENT_SECRET=your_client_secret \
   --transport stdio --scope user shopify-admin \
   -- npx -y mcp-shopify-admin@latest
 
@@ -116,7 +121,8 @@ Open **Settings → Developer → Edit Config** and add:
       "args": ["-y", "mcp-shopify-admin@latest"],
       "env": {
         "SHOPIFY_STORE_DOMAIN": "my-store.myshopify.com",
-        "SHOPIFY_ACCESS_TOKEN": "shpat_your_token"
+        "SHOPIFY_CLIENT_ID": "your_client_id",
+        "SHOPIFY_CLIENT_SECRET": "your_client_secret"
       }
     }
   }
@@ -145,7 +151,8 @@ Add this server to `~/.cursor/mcp.json` on macOS/Linux or `%USERPROFILE%\.cursor
       "args": ["-y", "mcp-shopify-admin@latest"],
       "env": {
         "SHOPIFY_STORE_DOMAIN": "my-store.myshopify.com",
-        "SHOPIFY_ACCESS_TOKEN": "shpat_your_token"
+        "SHOPIFY_CLIENT_ID": "your_client_id",
+        "SHOPIFY_CLIENT_SECRET": "your_client_secret"
       }
     }
   }
@@ -173,8 +180,13 @@ Run **MCP: Open User Configuration** and add:
     },
     {
       "type": "promptString",
-      "id": "shopify_access_token",
-      "description": "Shopify Admin API access token",
+      "id": "shopify_client_id",
+      "description": "Client ID of the Shopify Dev Dashboard app"
+    },
+    {
+      "type": "promptString",
+      "id": "shopify_client_secret",
+      "description": "Client secret of that app",
       "password": true
     }
   ],
@@ -185,7 +197,8 @@ Run **MCP: Open User Configuration** and add:
       "args": ["-y", "mcp-shopify-admin@latest"],
       "env": {
         "SHOPIFY_STORE_DOMAIN": "${input:shopify_store_domain}",
-        "SHOPIFY_ACCESS_TOKEN": "${input:shopify_access_token}"
+        "SHOPIFY_CLIENT_ID": "${input:shopify_client_id}",
+        "SHOPIFY_CLIENT_SECRET": "${input:shopify_client_secret}"
       }
     }
   }
@@ -224,37 +237,51 @@ The AI client may ask for confirmation before a write, but confirmation behavior
 
 ## Getting access
 
-This server currently takes a ready-to-use Admin API access token. It does not accept a client ID and secret, and it does not refresh expiring tokens.
+The server authenticates in one of two ways: with the client ID and secret of a Dev Dashboard app, which it exchanges for an access token itself, or with a ready-to-use Admin API access token that it sends as-is. If both are configured, the ready-made token wins.
 
-### Existing admin-created custom apps
+### Dev Dashboard app (recommended)
 
-Existing admin-created custom apps continue to work, but Shopify no longer allows new admin-created custom apps to be created in the Shopify admin. If you already maintain one:
+Shopify stopped allowing new admin-created custom apps on 2026-01-01, so this is the path for any store being set up today.
+
+1. Create an app in the [Shopify Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard) or with the [Shopify CLI](https://shopify.dev/docs/apps/build/scaffold-app), in the same Shopify organization the store belongs to.
+2. Give it the Admin API access scopes you need, such as `read_products`, `write_products`, `read_orders`, `read_customers`, `read_locations`, `write_inventory`, `read_discounts`, and `write_discounts`.
+3. Install the app on the store.
+4. Use the app's client ID and client secret as `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`.
+
+From there the server runs the [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant?lang=node) against `https://{store}.myshopify.com/admin/oauth/access_token` on its own. The token Shopify returns lives **24 hours**; the server keeps it in memory only — never on disk — re-mints it shortly before it expires, lets parallel tool calls share one exchange, and mints a fresh one if the API answers `401`. Nothing to renew by hand.
+
+The grant works **only when the app and the store belong to the same Shopify organization**. Otherwise Shopify refuses with `shop_not_permitted`, and the server relays that as a hint naming the organization mismatch. Re-issuing the credentials does not help: move the app into the store's organization, or use a store from it.
+
+### Existing admin-created custom apps (legacy)
+
+Apps created in the Shopify admin before 2026-01-01 keep working, and their token is still accepted. If you already maintain one:
 
 1. Open the app in the Shopify admin.
 2. Confirm the required Admin API access scopes, such as `read_products`, `write_products`, `read_orders`, `read_customers`, `read_locations`, `write_inventory`, `read_discounts`, and `write_discounts`.
 3. Install or reinstall the app if Shopify asks you to generate credentials.
 4. Use the issued Admin API access token as `SHOPIFY_ACCESS_TOKEN`.
 
-See Shopify's [legacy admin-created custom app documentation](https://shopify.dev/docs/apps/build/authentication-authorization/legacy/admin-custom-apps).
+The server sends this token as-is and never refreshes it, so replacing it when it stops working is yours to do. See Shopify's [legacy admin-created custom app documentation](https://shopify.dev/docs/apps/build/authentication-authorization/legacy/admin-custom-apps).
 
-### New apps
-
-For a new integration, use the [Shopify Dev Dashboard](https://shopify.dev/docs/apps/build/dev-dashboard) or [Shopify CLI](https://shopify.dev/docs/apps/build/scaffold-app). Dev Dashboard apps use an OAuth-based flow; for stores in your own Shopify organization, the [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant?lang=node) exchanges a client ID and secret for an access token that expires after 24 hours. Token acquisition and refresh are outside this MCP server, so renew the token externally before restarting the server.
-
-Treat every token as a password and never commit it to Git. For safe testing, use a [Shopify development store](https://shopify.dev/docs/apps/build/dev-dashboard/stores/development-stores).
+Treat the access token and the client secret as passwords and never commit them to Git. For safe testing, use a [Shopify development store](https://shopify.dev/docs/apps/build/dev-dashboard/stores/development-stores).
 
 ## Configuration
 
 | Variable | Required | Description |
 |---|---|---|
 | `SHOPIFY_STORE_DOMAIN` | Yes* | Permanent store host such as `my-store.myshopify.com`; a bare store name also works. |
-| `SHOPIFY_ACCESS_TOKEN` | Yes* | Ready-to-use Shopify Admin API access token. The server sends it in `X-Shopify-Access-Token` and does not refresh it. |
+| `SHOPIFY_CLIENT_ID` | Yes** | Client ID of a Dev Dashboard app. Together with the secret, the server mints its own 24-hour access token and keeps it fresh. |
+| `SHOPIFY_CLIENT_SECRET` | Yes** | Client secret of that app. Sent only to the store's `/admin/oauth/access_token`; the minted token stays in memory. |
+| `SHOPIFY_ACCESS_TOKEN` | Yes** | Legacy alternative: a ready-to-use Admin API access token from a pre-2026 custom app. The server sends it in `X-Shopify-Access-Token` and never refreshes it; it wins if the client pair is set too. |
 | `SHOPIFY_API_VERSION` | No | Quarterly `YYYY-MM` release or `unstable`; default: `2026-01`. |
 | `SHOPIFY_API_BASE` | No | Full `http`/`https` GraphQL endpoint override, useful for a local mock. |
 | `SHOPIFY_TIMEOUT_MS` | No | Per-request timeout; default: `30000` ms. |
 | `SHOPIFY_MAX_RETRIES` | No | Retries for `THROTTLED`/429 and for 5xx/network errors on reads; default: `4`. |
+| `SHOPIFY_TOKEN_LEEWAY_SECONDS` | No | How early a minted token is replaced; default: `300` s. Has no effect with a ready-made token. |
 
-\* `SHOPIFY_API_BASE` can replace the store domain for local tests, but a real Shopify request still needs `SHOPIFY_ACCESS_TOKEN`.
+\* `SHOPIFY_API_BASE` can replace the store domain for local tests, but a real Shopify request still needs credentials.
+
+\*\* One of the two authentication paths is required: `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET`, or `SHOPIFY_ACCESS_TOKEN`. With neither, the server still starts and answers `initialize`, but every tool call returns an error naming both options. Variables are read at startup, so restart the server after changing them.
 
 ## Data, limits, and background work
 

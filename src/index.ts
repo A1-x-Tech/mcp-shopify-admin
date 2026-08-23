@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ShopifyAdminClient } from "./client.js";
-import { ConfigError, DEFAULT_API_VERSION, describeTarget, hasCredentials, loadConfig } from "./config.js";
+import { authMode, ConfigError, DEFAULT_API_VERSION, describeTarget, hasCredentials, loadConfig } from "./config.js";
 import { instrumentToolCalls, Telemetry } from "./telemetry.js";
 import type { ShopifyAdminConfig } from "./types.js";
 import { registerShopTools } from "./tools/shop.js";
@@ -29,7 +29,8 @@ const INSTRUCTIONS =
   "всё остальное (метаполя, медиа, коллекции, вебхуки, bulk-операции) доступно через " +
   "graphql_request — произвольный GraphQL-документ, помеченный destructive. Права ограничены " +
   "scopes токена: ACCESS_DENIED в ошибке — не неверный токен, а отсутствующий scope у приложения; " +
-  "401 — сам токен. Учёт вызовов — cost-бакет GraphQL, восстанавливаемый restoreRate очков в " +
+  "401 — сами учётные данные (сервер сам обновляет токен, если задана пара CLIENT_ID/CLIENT_SECRET). " +
+  "Учёт вызовов — cost-бакет GraphQL, восстанавливаемый restoreRate очков в " +
   "секунду; каждый ответ несёт cost с остатком currentlyAvailable, и по нему стоит рассчитывать " +
   "вызовы: одна страница first до 250 дешевле многих мелких. Мутации возвращают HTTP 200 даже при " +
   "провале — вердикт лежит в userErrors; инструменты превращают его в ошибку, но в graphql_request " +
@@ -44,14 +45,16 @@ const INSTRUCTIONS =
  * restart the server.
  */
 const UNCONFIGURED_PREFIX =
-  "ВНИМАНИЕ: Shopify ещё не подключён — не заданы переменные окружения SHOPIFY_STORE_DOMAIN и/или " +
-  "SHOPIFY_ACCESS_TOKEN, поэтому любой вызов инструмента вернёт ошибку. Подключиться из диалога " +
-  "нельзя: оператор должен создать и установить приложение через Shopify Dev Dashboard или Shopify CLI, " +
-  "выдать ему нужные Admin API access scopes (например read_products, write_products, read_orders, " +
-  "read_customers), получить Admin API access token через подходящий OAuth/client-credentials flow, " +
-  "а затем задать SHOPIFY_STORE_DOMAIN (домен вида my-store.myshopify.com) и " +
-  "SHOPIFY_ACCESS_TOKEN в конфигурации MCP-клиента и перезапустить сервер. Сервер не получает и не " +
-  "обновляет истекающие токены сам — переменные читаются только при старте. ";
+  "ВНИМАНИЕ: Shopify ещё не подключён — не задан SHOPIFY_STORE_DOMAIN и/или учётные данные, поэтому " +
+  "любой вызов инструмента вернёт ошибку. Подключиться из диалога нельзя: оператор должен создать и " +
+  "установить приложение через Shopify Dev Dashboard или Shopify CLI, выдать ему нужные Admin API " +
+  "access scopes (например read_products, write_products, read_orders, read_customers), а затем " +
+  "задать SHOPIFY_STORE_DOMAIN (домен вида my-store.myshopify.com) и пару SHOPIFY_CLIENT_ID / " +
+  "SHOPIFY_CLIENT_SECRET этого приложения — сервер сам обменяет их на токен и будет обновлять его. " +
+  "Приложение и магазин должны быть в одной организации Shopify. Если у вас сохранилось приложение, " +
+  "созданное в админке магазина до 2026-01-01, можно вместо пары задать готовый SHOPIFY_ACCESS_TOKEN; " +
+  "такой токен сервер не обновляет. Переменные читаются только при старте: после правки нужно " +
+  "перезапустить сервер. ";
 
 /** Reads the package version so the server reports its real version to MCP clients. */
 function readVersion(): string {
@@ -137,7 +140,7 @@ async function main(): Promise<void> {
     if (connected) telemetry.send("server_start");
     else {
       telemetry.send("unconfigured_start", {
-        reason: problem?.reason ?? (!config.endpoint ? "missing_store_domain" : "missing_access_token"),
+        reason: problem?.reason ?? (!config.endpoint ? "missing_store_domain" : "missing_credentials"),
       });
     }
   };
@@ -155,10 +158,12 @@ async function main(): Promise<void> {
   console.error(
     connected
       ? // describeTarget, never the raw endpoint: this line lands in the host's
-        // log file, and a URL may carry credentials of its own.
-        `mcp-shopify-admin работает через stdio (магазин ${describeTarget(config)}, API ${config.apiVersion})`
+        // log file, and a URL may carry credentials of its own. The auth mode
+        // is named because the two behave differently when a token goes stale.
+        `mcp-shopify-admin работает через stdio (магазин ${describeTarget(config)}, API ${config.apiVersion}, ` +
+          `авторизация: ${authMode(config) === "client_credentials" ? "client_credentials, токен обновляется автоматически" : "готовый токен, обновление на стороне оператора"})`
       : "mcp-shopify-admin работает через stdio (креденшелы не заданы — задайте SHOPIFY_STORE_DOMAIN " +
-          "и SHOPIFY_ACCESS_TOKEN и перезапустите сервер)",
+          "и пару SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET и перезапустите сервер)",
   );
 }
 

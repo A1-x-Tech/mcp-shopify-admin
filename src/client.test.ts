@@ -32,16 +32,27 @@ function config(overrides: Partial<ShopifyAdminConfig> = {}): ShopifyAdminConfig
 interface Recorded {
   url: string;
   headers: Record<string, string>;
+  /** Parsed JSON body, or null for the form-encoded token request. */
   body: { query: string; variables?: Record<string, unknown>; operationName?: string };
+  /** The body exactly as sent, so the token exchange can be inspected too. */
+  raw: string;
 }
 
 /** A queue-driven fetch: each call shifts the next scripted response. */
 function scriptedFetch(responses: Array<Response | Error>, recorded: Recorded[] = []) {
   return (async (url: unknown, init?: RequestInit) => {
+    const raw = init?.body === undefined ? "" : String(init.body);
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // The client_credentials exchange posts form-encoded data, not JSON.
+    }
     recorded.push({
       url: String(url),
       headers: (init?.headers ?? {}) as Record<string, string>,
-      body: JSON.parse(String(init?.body)),
+      body: parsed as Recorded["body"],
+      raw,
     });
     const next = responses.shift();
     if (!next) throw new Error("scripted fetch exhausted");
@@ -576,6 +587,203 @@ test("normalizePageSize clamps into Shopify's 1..250", () => {
   assert.equal(normalizePageSize(999), MAX_PAGE_SIZE);
   assert.equal(normalizePageSize(50.9), 50);
   assert.equal(normalizePageSize(Number.NaN), DEFAULT_PAGE_SIZE);
+});
+
+// --- Authentication: the client_credentials grant ---
+//
+// Admin-created custom apps stopped being issuable on 2026-01-01, so a store
+// set up today can only supply client credentials, and the token they buy
+// lives 24 hours. The client mints and re-mints it; these pin that it does so
+// exactly once per need and never leaks the secret into a request it shouldn't.
+
+const TOKEN_ENDPOINT = "https://my-store.myshopify.com/admin/oauth/access_token";
+
+/** A config that authenticates by minting, not by being handed a token. */
+function ccConfig(overrides: Partial<ShopifyAdminConfig> = {}): ShopifyAdminConfig {
+  const { accessToken, ...rest } = config(overrides);
+  return { ...rest, clientId: "cid-1", clientSecret: "csecret-1", ...overrides };
+}
+
+function tokenOk(value = "shpat_minted", expiresIn = 86_399): Response {
+  return new Response(JSON.stringify({ access_token: value, scope: "read_products", expires_in: expiresIn }), {
+    status: 200,
+  });
+}
+
+test("client credentials are exchanged for a token, which then signs the API call", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(ccConfig(), scriptedFetch([tokenOk(), gqlOk({ shop: { name: "S" } })], recorded));
+  await client.getShop();
+
+  assert.equal(recorded.length, 2, "one mint, then the API call");
+  const [mint, call] = recorded;
+  assert.equal(mint.url, TOKEN_ENDPOINT, "the grant lives on the store host, next to the API");
+  assert.equal(mint.headers["Content-Type"], "application/x-www-form-urlencoded");
+  const form = new URLSearchParams(mint.raw);
+  assert.equal(form.get("grant_type"), "client_credentials");
+  assert.equal(form.get("client_id"), "cid-1");
+  assert.equal(form.get("client_secret"), "csecret-1");
+  // The secret buys the token and must never travel to the API itself.
+  assert.equal(call.url, ENDPOINT);
+  assert.equal(call.headers["X-Shopify-Access-Token"], "shpat_minted");
+  assert.equal(JSON.stringify(call.headers).includes("csecret-1"), false);
+});
+
+test("the minted token is cached — a second call does not mint again", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch([tokenOk(), gqlOk({ shop: {} }), gqlOk({ productsCount: { count: 1 }, products: {} })], recorded),
+  );
+  await client.getShop();
+  await client.listProducts();
+  assert.equal(recorded.filter((r) => r.url === TOKEN_ENDPOINT).length, 1);
+});
+
+test("parallel calls share one exchange instead of minting a token each", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch([tokenOk(), gqlOk({ shop: {} }), gqlOk({ shop: {} }), gqlOk({ shop: {} })], recorded),
+  );
+  await Promise.all([client.getShop(), client.getShop(), client.getShop()]);
+  assert.equal(recorded.filter((r) => r.url === TOKEN_ENDPOINT).length, 1, "an in-flight mint must be shared");
+});
+
+test("a token inside the leeway window is replaced before it can expire mid-call", async () => {
+  const recorded: Recorded[] = [];
+  // Issued for 100s with a 300s leeway: already "too old to trust" on arrival,
+  // so the next call must mint again rather than present it.
+  const client = new ShopifyAdminClient(
+    ccConfig({ tokenLeewaySeconds: 300 }),
+    scriptedFetch([tokenOk("first", 100), gqlOk({ shop: {} }), tokenOk("second", 86_399), gqlOk({ shop: {} })], recorded),
+  );
+  await client.getShop();
+  await client.getShop();
+  const mints = recorded.filter((r) => r.url === TOKEN_ENDPOINT);
+  assert.equal(mints.length, 2);
+  assert.equal(recorded.filter((r) => r.url === ENDPOINT)[1].headers["X-Shopify-Access-Token"], "second");
+});
+
+test("a 401 drops the minted token and repeats the call once with a fresh one", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch(
+      [tokenOk("stale"), new Response("unauthorized", { status: 401 }), tokenOk("fresh"), gqlOk({ shop: { name: "ok" } })],
+      recorded,
+    ),
+  );
+  const res = await client.getShop();
+  assert.equal((res.data.shop as { name: string }).name, "ok");
+  const apiCalls = recorded.filter((r) => r.url === ENDPOINT);
+  assert.equal(apiCalls.length, 2);
+  assert.equal(apiCalls[0].headers["X-Shopify-Access-Token"], "stale");
+  assert.equal(apiCalls[1].headers["X-Shopify-Access-Token"], "fresh");
+});
+
+test("a second 401 is surfaced instead of looping on re-mints", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig({ maxRetries: 0 }),
+    scriptedFetch(
+      [tokenOk("a"), new Response("unauthorized", { status: 401 }), tokenOk("b"), new Response("unauthorized", { status: 401 })],
+      recorded,
+    ),
+  );
+  await assert.rejects(client.getShop(), (err: unknown) => err instanceof ShopifyAdminError && err.status === 401);
+  assert.equal(recorded.filter((r) => r.url === TOKEN_ENDPOINT).length, 2, "exactly one re-mint, then give up");
+});
+
+test("a ready-made token is used as-is and never re-minted on a 401", async () => {
+  const recorded: Recorded[] = [];
+  // Both are configured; the ready-made token wins and no exchange happens.
+  const client = new ShopifyAdminClient(
+    { ...ccConfig(), accessToken: "shpat_legacy", maxRetries: 0 },
+    scriptedFetch([new Response("unauthorized", { status: 401 })], recorded),
+  );
+  await assert.rejects(client.getShop(), (err: unknown) => err instanceof ShopifyAdminError && err.status === 401);
+  assert.equal(recorded.length, 1, "re-minting cannot fix a token the operator supplied");
+  assert.equal(recorded[0].headers["X-Shopify-Access-Token"], "shpat_legacy");
+  assert.equal(recorded.some((r) => r.url === TOKEN_ENDPOINT), false);
+});
+
+test("a refused exchange is an authentication failure and is not retried", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch(
+      [new Response(JSON.stringify({ error: "shop_not_permitted" }), { status: 401 })],
+      recorded,
+    ),
+  );
+  await assert.rejects(client.getShop(), (err: unknown) => {
+    assert.ok(err instanceof ShopifyAdminError);
+    assert.equal(err.kind, "authentication");
+    assert.match(err.message, /Не удалось получить токен/);
+    assert.match(err.message, /shop_not_permitted/);
+    return true;
+  });
+  assert.equal(recorded.length, 1, "wrong credentials do not improve on retry");
+});
+
+test("an exchange that answers 200 without a token is an error, not an empty string", async () => {
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch([new Response(JSON.stringify({ scope: "read_products" }), { status: 200 })]),
+  );
+  await assert.rejects(client.getShop(), (err: unknown) => {
+    assert.ok(err instanceof ShopifyAdminError);
+    assert.match(err.message, /нет access_token/);
+    return true;
+  });
+});
+
+test("a failed mint is not cached — the next call tries again", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig({ maxRetries: 0 }),
+    scriptedFetch([new Response("nope", { status: 500 }), tokenOk("later"), gqlOk({ shop: {} })], recorded),
+  );
+  await assert.rejects(client.getShop());
+  await client.getShop();
+  assert.equal(recorded.filter((r) => r.url === TOKEN_ENDPOINT).length, 2);
+});
+
+test("neither a token nor client credentials is rejected before any fetch", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    { apiVersion: "2026-01", endpoint: ENDPOINT, storeDomain: "my-store.myshopify.com" },
+    scriptedFetch([], recorded),
+  );
+  await assert.rejects(client.getShop(), (err: unknown) => {
+    assert.ok(err instanceof CredentialsError);
+    assert.match(err.message, /SHOPIFY_CLIENT_ID/);
+    assert.match(err.message, /SHOPIFY_CLIENT_SECRET/);
+    assert.match(err.message, /SHOPIFY_ACCESS_TOKEN/);
+    return true;
+  });
+  assert.equal(recorded.length, 0);
+});
+
+test("half the pair is not credentials — an id without a secret still refuses", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    { apiVersion: "2026-01", endpoint: ENDPOINT, clientId: "cid-only" },
+    scriptedFetch([], recorded),
+  );
+  await assert.rejects(client.getShop(), CredentialsError);
+  assert.equal(recorded.length, 0);
+});
+
+test("the token endpoint follows the endpoint override, so a mock stays self-consistent", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig({ storeDomain: undefined, endpoint: "http://127.0.0.1:9000/graphql.json" }),
+    scriptedFetch([tokenOk(), gqlOk({ shop: {} })], recorded),
+  );
+  await client.getShop();
+  assert.equal(recorded[0].url, "http://127.0.0.1:9000/admin/oauth/access_token");
 });
 
 // --- Timeout ---

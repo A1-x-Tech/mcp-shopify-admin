@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-08-23
+
+### Added
+
+- `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET`: the server now runs the
+  `client_credentials` grant itself against
+  `https://{store}.myshopify.com/admin/oauth/access_token` and manages the token
+  it gets back. This is the recommended path — Shopify stopped issuing
+  admin-created custom apps on 2026-01-01, so a store set up today registers an
+  app in the Dev Dashboard and receives a client id and secret instead of a
+  ready-made token.
+- The minted token is cached in memory only (never written to disk), re-minted
+  before it expires — it lives 24 hours — and re-minted once when the API
+  answers 401. Parallel tool calls share a single exchange instead of each
+  minting its own token.
+- `SHOPIFY_TOKEN_LEEWAY_SECONDS` (default 300): how early a minted token is
+  replaced.
+- A failed exchange is explained rather than retried: the `client_credentials`
+  grant only works when the app and the store belong to the same Shopify
+  organization, and the `shop_not_permitted` answer now comes back as a hint
+  naming that mismatch.
+
+### Changed
+
+- `SHOPIFY_ACCESS_TOKEN` is now optional: either it or the client id/secret pair
+  is enough to start. A ready-made token is still used as-is and never
+  refreshed — the path for stores holding a pre-2026 custom app token — and it
+  wins when both are set. With neither present the server still starts degraded
+  and every tool call returns an actionable error naming both options.
+
 ## [1.0.1] — 2026-08-23
 
 ### Changed
