@@ -56,6 +56,18 @@ const UNCONFIGURED_PREFIX =
   "такой токен сервер не обновляет. Переменные читаются только при старте: после правки нужно " +
   "перезапустить сервер. ";
 
+/**
+ * Used instead of {@link UNCONFIGURED_PREFIX} when a *malformed* value is what
+ * degraded the config. Saying "credentials are missing" would be false and
+ * actively misleading here — they are usually set correctly, and one other
+ * variable is broken — so the problem leads and the fix is scoped to it.
+ */
+const configProblemPrefix = (message: string): string =>
+  `ВНИМАНИЕ: Shopify не подключён из-за ошибки конфигурации, поэтому любой вызов инструмента вернёт ` +
+  `ошибку. Проблема конфигурации: ${message} Остальные переменные при этом могут быть заданы верно — ` +
+  `исправить нужно именно названную. Переменные читаются только при старте: после правки нужно ` +
+  `перезапустить сервер. `;
+
 /** Reads the package version so the server reports its real version to MCP clients. */
 function readVersion(): string {
   try {
@@ -126,7 +138,7 @@ async function main(): Promise<void> {
     {
       instructions: connected
         ? INSTRUCTIONS
-        : UNCONFIGURED_PREFIX + (problem ? `Проблема конфигурации: ${problem.message} ` : "") + INSTRUCTIONS,
+        : (problem ? configProblemPrefix(problem.message) : UNCONFIGURED_PREFIX) + INSTRUCTIONS,
     },
   );
 
@@ -162,7 +174,12 @@ async function main(): Promise<void> {
         // is named because the two behave differently when a token goes stale.
         `mcp-shopify-admin работает через stdio (магазин ${describeTarget(config)}, API ${config.apiVersion}, ` +
           `авторизация: ${authMode(config) === "client_credentials" ? "client_credentials, токен обновляется автоматически" : "готовый токен, обновление на стороне оператора"})`
-      : "mcp-shopify-admin работает через stdio (креденшелы не заданы — задайте SHOPIFY_STORE_DOMAIN " +
+      : problem
+        ? // This line is what the operator finds in the host's log; telling them
+          // to set variables they already set sends them the wrong way.
+          `mcp-shopify-admin работает через stdio (не подключён из-за ошибки конфигурации: ${problem.message} ` +
+          "Исправьте эту переменную и перезапустите сервер)"
+        : "mcp-shopify-admin работает через stdio (креденшелы не заданы — задайте SHOPIFY_STORE_DOMAIN " +
           "и пару SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET и перезапустите сервер)",
   );
 }

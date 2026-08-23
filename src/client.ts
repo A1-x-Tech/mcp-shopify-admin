@@ -108,67 +108,83 @@ export function normalizePageSize(first: number | undefined): number {
   return Math.min(Math.max(Math.trunc(first), MIN_PAGE_SIZE), MAX_PAGE_SIZE);
 }
 
-/** What the document's first executable operation is. */
+/** What an executable operation in a document is. */
 export type OperationKind = "query" | "mutation" | "subscription" | "shorthand" | "unknown";
 
+/** One executable operation found in a document, in source order. */
+export interface OperationInfo {
+  kind: Exclude<OperationKind, "unknown">;
+  /** The operation's name, absent for the anonymous shorthand form. */
+  name?: string;
+}
+
 /**
- * The kind of the first *executable operation* in a GraphQL document — the
- * retry-safety gate for `graphql_request`, the one caller whose document the
- * client did not write itself.
+ * Every executable operation in a GraphQL document, in source order, with its
+ * name — the raw material of the retry-safety gate for `graphql_request`, the
+ * one caller whose document the client did not write itself.
  *
- * It cannot just read the first keyword: fragment definitions may legally come
+ * It cannot just read the first keyword. Fragment definitions may legally come
  * before the operation they serve, so `fragment F on Product { id } mutation M
- * { … }` opens with `fragment` while being a mutation. Reading only the first
- * word classified that as a query and let a mutation into the 5xx retry loop —
- * exactly the double-write this whole asymmetry exists to prevent.
+ * { … }` opens with `fragment` while being a mutation. And a document may hold
+ * several operations, in which case the one that runs is whichever
+ * `operationName` selects — not necessarily the first.
  *
- * So this walks the document instead, tracking brace depth and skipping what
- * cannot contain a top-level definition: comments, strings, block strings, and
- * anything inside `(…)` (a directive or variable default may carry braces of
- * its own). The first depth-0 `query`/`mutation`/`subscription` keyword wins;
- * a depth-0 `{` that is not a fragment body is the shorthand query form.
+ * So this walks the document, tracking brace depth and skipping what cannot
+ * contain a top-level definition: comments, strings, block strings, and
+ * anything inside `(…)` (a directive or a variable default may carry braces of
+ * its own). A depth-0 `query`/`mutation`/`subscription` opens an operation and
+ * the identifier after it is its name; a depth-0 `{` that is not a fragment
+ * body is the anonymous shorthand form, which is always a query.
  */
-export function firstOperationKind(document: string): OperationKind {
+export function scanOperations(document: string): OperationInfo[] {
+  const operations: OperationInfo[] = [];
   let i = 0;
   let depth = 0;
   let parens = 0;
   let pendingFragment = false;
+  /** The operation whose name we are still waiting for, if any. */
+  let awaitingName: OperationInfo | undefined;
   let word = "";
 
-  /** Consumes the identifier just collected; returns the operation it names, if any. */
-  const takeWord = (): OperationKind | null => {
-    if (!word) return null;
-    const w = word.toLowerCase();
+  /** Consumes the identifier just collected: a keyword, an operation name, or noise. */
+  const takeWord = (): void => {
+    if (!word) return;
+    const w = word;
     word = "";
-    if (w === "fragment") {
+    const lower = w.toLowerCase();
+    if (lower === "fragment") {
       pendingFragment = true;
-      return null;
+      awaitingName = undefined;
+      return;
     }
-    if (w === "query" || w === "mutation" || w === "subscription") return w;
-    return null;
+    if (lower === "query" || lower === "mutation" || lower === "subscription") {
+      awaitingName = { kind: lower };
+      operations.push(awaitingName);
+      return;
+    }
+    // The first identifier after an operation keyword is its name; anything
+    // else at this level (a fragment's name, its `on`, its type) is noise.
+    if (awaitingName && awaitingName.name === undefined) awaitingName.name = w;
   };
 
   while (i < document.length) {
     const ch = document[i];
 
     if (ch === "#") {
-      const found = takeWord();
-      if (found) return found;
+      takeWord();
       while (i < document.length && document[i] !== "\n") i++;
       continue;
     }
 
     if (document.startsWith('"""', i)) {
-      const found = takeWord();
-      if (found) return found;
+      takeWord();
       const end = document.indexOf('"""', i + 3);
       i = end === -1 ? document.length : end + 3;
       continue;
     }
 
     if (ch === '"') {
-      const found = takeWord();
-      if (found) return found;
+      takeWord();
       i++;
       while (i < document.length && document[i] !== '"') {
         if (document[i] === "\\") i++;
@@ -181,8 +197,7 @@ export function firstOperationKind(document: string): OperationKind {
     // Argument lists can hold braces (`@dir(if: {x: 1})`, `$v: In = {a: 1}`),
     // so brace depth is only meaningful outside them.
     if (ch === "(" || ch === ")") {
-      const found = takeWord();
-      if (found) return found;
+      takeWord();
       if (ch === "(") parens++;
       else if (parens > 0) parens--;
       i++;
@@ -190,14 +205,14 @@ export function firstOperationKind(document: string): OperationKind {
     }
 
     if (parens === 0 && (ch === "{" || ch === "}")) {
-      const found = takeWord();
-      if (found) return found;
+      takeWord();
       if (ch === "{") {
         if (depth === 0) {
-          // A top-level selection set either closes a fragment header or is the
-          // shorthand operation form, which is always a query.
+          // A top-level selection set closes a fragment header, opens the body
+          // of the operation just named, or is the shorthand form on its own.
           if (pendingFragment) pendingFragment = false;
-          else return "shorthand";
+          else if (!awaitingName) operations.push({ kind: "shorthand" });
+          awaitingName = undefined;
         }
         depth++;
       } else if (depth > 0) {
@@ -213,22 +228,46 @@ export function firstOperationKind(document: string): OperationKind {
       continue;
     }
 
-    const found = takeWord();
-    if (found) return found;
+    takeWord();
     i++;
   }
 
-  return takeWord() ?? "unknown";
+  takeWord();
+  return operations;
+}
+
+/** The kind of the document's first executable operation, or "unknown". */
+export function firstOperationKind(document: string): OperationKind {
+  return scanOperations(document)[0]?.kind ?? "unknown";
 }
 
 /**
- * Whether a document must be treated as a write. Only a *proven* non-mutation
- * is safe to repeat: an unreadable document counts as a mutation, because
- * guessing "safe to repeat" about an unknown write is how a write lands twice.
+ * Whether a document must be treated as a write, given the `operationName` the
+ * request will carry. Only a *proven* non-mutation is safe to repeat: anything
+ * unreadable or ambiguous counts as a mutation, because guessing "safe to
+ * repeat" about an unknown write is how a write lands twice.
+ *
+ * The name matters. GraphQL runs the operation `operationName` selects, so a
+ * document whose first operation is a query can still execute a mutation —
+ * `query Peek { … } mutation Apply { … }` with `operationName: "Apply"` did
+ * exactly that, and reading only the first operation sent it into the 5xx
+ * retry loop.
  */
-export function isMutationDocument(query: string): boolean {
-  const kind = firstOperationKind(query);
-  return kind === "mutation" || kind === "unknown";
+export function isMutationDocument(query: string, operationName?: string): boolean {
+  const operations = scanOperations(query);
+  if (operations.length === 0) return true;
+
+  if (operationName) {
+    const selected = operations.find((op) => op.name === operationName);
+    // A name that matches nothing is a request we cannot reason about.
+    return selected ? selected.kind === "mutation" : true;
+  }
+
+  // Without a name the server runs the sole operation — and refuses a document
+  // that holds more than one. That refusal must not be repeated as if it were
+  // a read, so ambiguity is treated as a write.
+  if (operations.length > 1) return true;
+  return operations[0].kind === "mutation";
 }
 
 /**
@@ -611,7 +650,7 @@ export class ShopifyAdminClient {
       client_secret: clientSecret,
     }).toString();
 
-    const { res, text } = await this.fetchWithTimeout(this.tokenEndpoint, {
+    const init: RequestInit = {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -619,7 +658,36 @@ export class ShopifyAdminClient {
         "User-Agent": this.userAgent,
       },
       body,
-    });
+    };
+
+    // The exchange gets the same transient-failure tolerance as a read. It is
+    // idempotent — asking for a token twice just yields two tokens — and
+    // without this a single dropped connection on the mint killed a tool call
+    // that the very same failure on the API endpoint would have survived.
+    // Refusals (4xx) are not repeated: wrong credentials, or an app and store
+    // in different organizations, do not improve on retry.
+    let res: Response;
+    let text: string;
+    let attempt = 0;
+    for (;;) {
+      try {
+        ({ res, text } = await this.fetchWithTimeout(this.tokenEndpoint, init, "эндпоинту токена Shopify"));
+      } catch (err) {
+        if (attempt < this.maxRetries) {
+          attempt++;
+          await delay(backoffMs(attempt - 1, this.retryBaseMs));
+          continue;
+        }
+        throw err;
+      }
+      const transient = res.status === 429 || (res.status >= 500 && res.status < 600);
+      if (transient && attempt < this.maxRetries) {
+        attempt++;
+        await delay(backoffMs(attempt - 1, this.retryBaseMs, retryAfterSeconds(res)));
+        continue;
+      }
+      break;
+    }
 
     const data = parseBody(text);
     if (!res.ok) {
@@ -666,7 +734,9 @@ export class ShopifyAdminClient {
     variables?: Record<string, unknown>,
     operationName?: string,
   ): Promise<ApiResponse<T>> {
-    return this.send<T>(query, variables, !isMutationDocument(query), operationName);
+    // The name is part of the retry-safety decision, not just of the payload:
+    // it selects which operation actually runs.
+    return this.send<T>(query, variables, !isMutationDocument(query, operationName), operationName);
   }
 
   private async send<T>(
@@ -788,7 +858,13 @@ export class ShopifyAdminClient {
    * guarded zone so the timeout also covers a slow or drip-feeding body, not
    * just the initial headers, and returns the text alongside the response.
    */
-  private async fetchWithTimeout(url: string, init: RequestInit): Promise<{ res: Response; text: string }> {
+  private async fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    // Named so a hung token exchange does not report itself as the API call —
+    // the two have different fixes, and the message is what the operator reads.
+    label = "Shopify Admin API",
+  ): Promise<{ res: Response; text: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -797,7 +873,7 @@ export class ShopifyAdminClient {
       return { res, text };
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        throw new Error(`Запрос к Shopify Admin API превысил тайм-аут ${this.timeoutMs} мс`);
+        throw new Error(`Запрос к ${label} превысил тайм-аут ${this.timeoutMs} мс`);
       }
       throw err;
     } finally {

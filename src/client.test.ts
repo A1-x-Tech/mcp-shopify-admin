@@ -6,6 +6,7 @@ import {
   DEFAULT_PAGE_SIZE,
   firstOperationKind,
   isMutationDocument,
+  scanOperations,
   MAX_PAGE_SIZE,
   normalizePageSize,
   ShopifyAdminClient,
@@ -504,6 +505,60 @@ test("a mutation is still a mutation behind fragments, comments and strings", ()
   assert.equal(isMutationDocument("fragment PF on Product { id }\n{ product { ...PF } }"), false);
 });
 
+/**
+ * GraphQL runs the operation `operationName` selects, not the first one in the
+ * document. Reading only the first operation let a selected mutation into the
+ * 5xx retry loop behind a leading query — the same double write the fragment
+ * case caused, through a different door.
+ */
+test("the retry gate follows operationName, not document order", () => {
+  const doc = "query Peek { shop { name } }\nmutation Apply { productCreate { product { id } } }";
+  assert.equal(isMutationDocument(doc, "Apply"), true, "the selected mutation must not be repeatable");
+  assert.equal(isMutationDocument(doc, "Peek"), false, "the selected query stays repeatable");
+  // A name matching nothing is a request we cannot reason about.
+  assert.equal(isMutationDocument(doc, "Missing"), true);
+  // Several operations and no name at all: the server refuses the document,
+  // and that refusal must not be repeated as if it were a read.
+  assert.equal(isMutationDocument(doc), true);
+  // The single-operation cases keep their old answers.
+  assert.equal(isMutationDocument("query Q { shop { name } }", "Q"), false);
+  assert.equal(isMutationDocument("mutation M { x }", "M"), true);
+  // …including behind fragments, which is where the previous fix landed.
+  assert.equal(
+    isMutationDocument("fragment F on P { id }\nquery Q { p { ...F } }\nmutation M { y }", "M"),
+    true,
+  );
+  assert.equal(
+    isMutationDocument("fragment F on P { id }\nquery Q { p { ...F } }\nmutation M { y }", "Q"),
+    false,
+  );
+});
+
+test("scanOperations records every operation with its name, in order", () => {
+  assert.deepEqual(scanOperations("query A { x } mutation B { y }"), [
+    { kind: "query", name: "A" },
+    { kind: "mutation", name: "B" },
+  ]);
+  assert.deepEqual(scanOperations("{ shop { name } }"), [{ kind: "shorthand" }]);
+  assert.deepEqual(scanOperations("fragment F on P { id } mutation M($v: ID!) { y }"), [
+    { kind: "mutation", name: "M" },
+  ]);
+  assert.deepEqual(scanOperations("   "), []);
+});
+
+test("a mutation selected by operationName is NOT retried on 5xx", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    config(),
+    scriptedFetch([new Response("boom", { status: 502 }), new Response("boom", { status: 502 })], recorded),
+  );
+  await assert.rejects(
+    client.request("query Peek { shop { name } } mutation Apply { productCreate { product { id } } }", undefined, "Apply"),
+    (err: unknown) => err instanceof ShopifyAdminError && err.status === 502,
+  );
+  assert.equal(recorded.length, 1, "the document's leading query must not make the write repeatable");
+});
+
 test("firstOperationKind names the operation it found", () => {
   assert.equal(firstOperationKind("query Q { x }"), "query");
   assert.equal(firstOperationKind("{ x }"), "shorthand");
@@ -768,6 +823,42 @@ test("an exchange that answers 200 without a token is an error, not an empty str
     assert.match(err.message, /нет access_token/);
     return true;
   });
+});
+
+test("a dropped connection on the mint is retried, like the same failure on the API", async () => {
+  const recorded: Recorded[] = [];
+  // Minting is idempotent — asking twice just yields two tokens — so a
+  // transient failure here must not kill a call the API endpoint would survive.
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch([new Error("socket hang up"), tokenOk("after-retry"), gqlOk({ shop: {} })], recorded),
+  );
+  await client.getShop();
+  assert.equal(recorded.filter((r) => r.url === TOKEN_ENDPOINT).length, 2);
+  assert.equal(recorded[2].headers["X-Shopify-Access-Token"], "after-retry");
+});
+
+test("a refused mint (4xx) is still not retried — wrong credentials do not improve", async () => {
+  const recorded: Recorded[] = [];
+  const client = new ShopifyAdminClient(
+    ccConfig(),
+    scriptedFetch([new Response(JSON.stringify({ error: "invalid_client" }), { status: 400 })], recorded),
+  );
+  await assert.rejects(client.getShop(), ShopifyAdminError);
+  assert.equal(recorded.length, 1);
+});
+
+test("a hung mint reports the token endpoint, not the API", async () => {
+  const hangingFetch = ((_url: unknown, init?: RequestInit) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        reject(err);
+      });
+    })) as typeof fetch;
+  const client = new ShopifyAdminClient(ccConfig({ timeoutMs: 20, maxRetries: 0 }), hangingFetch);
+  await assert.rejects(client.getShop(), /эндпоинту токена Shopify превысил тайм-аут 20 мс/);
 });
 
 test("a failed mint is not cached — the next call tries again", async () => {

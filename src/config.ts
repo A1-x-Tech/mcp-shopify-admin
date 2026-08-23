@@ -34,6 +34,32 @@ function die(message: string, reason: string): never {
   throw new ConfigError(message, reason);
 }
 
+/**
+ * Reads a secret from the environment: trims it, treats an empty value as
+ * absent, and refuses one carrying characters that cannot travel in an HTTP
+ * header.
+ *
+ * Without this an access token holding a newline reached `fetch`, which threw
+ * `Headers.append: "<the token>" is an invalid header value` — and that message
+ * went straight into the tool result the model reads and the host writes to
+ * disk. The check exists so the value is rejected here instead, where the
+ * message can name the variable without ever quoting it.
+ */
+function credential(raw: string | undefined, variable: string): string | undefined {
+  const value = (raw ?? "").trim();
+  if (!value) return undefined;
+  // Control characters only — that is the class which actually breaks a header.
+  // A stricter rule risks rejecting a credential format Shopify has not shipped yet.
+  if (/[\u0000-\u001F\u007F]/.test(value)) {
+    die(
+      `${variable} содержит символ, недопустимый в HTTP-заголовке (перевод строки или управляющий символ). ` +
+        "Скорее всего, значение скопировано с лишним переносом строки — задайте его одной строкой.",
+      "invalid_credential",
+    );
+  }
+  return value;
+}
+
 /** Reads a numeric env var that must be > 0, else returns the fallback. */
 function positiveNumber(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
@@ -140,10 +166,13 @@ export function normalizeStoreDomain(raw: string): string {
  *   SHOPIFY_API_BASE               full GraphQL endpoint override, e.g. a local mock
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ShopifyAdminConfig {
-  // An empty string reads as absent, never as an empty credential.
-  const accessToken = env.SHOPIFY_ACCESS_TOKEN || undefined;
-  const clientId = env.SHOPIFY_CLIENT_ID || undefined;
-  const clientSecret = env.SHOPIFY_CLIENT_SECRET || undefined;
+  // An empty string reads as absent, never as an empty credential. Trimming is
+  // deliberate: a credential pasted from a file or a terminal often arrives
+  // with a trailing newline, and that is a copy-paste artifact rather than a
+  // different secret.
+  const accessToken = credential(env.SHOPIFY_ACCESS_TOKEN, "SHOPIFY_ACCESS_TOKEN");
+  const clientId = credential(env.SHOPIFY_CLIENT_ID, "SHOPIFY_CLIENT_ID");
+  const clientSecret = credential(env.SHOPIFY_CLIENT_SECRET, "SHOPIFY_CLIENT_SECRET");
 
   const domainRaw = (env.SHOPIFY_STORE_DOMAIN ?? "").trim();
   const storeDomain = domainRaw ? normalizeStoreDomain(domainRaw) : undefined;

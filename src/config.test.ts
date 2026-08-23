@@ -218,6 +218,36 @@ test("the token leeway defaults to 300 seconds and can be overridden, zero inclu
   );
 });
 
+/**
+ * A newline inside a token used to reach fetch, whose thrown message quotes the
+ * offending value — putting the credential into the model's context and the
+ * host's transcript. It is rejected here instead, and the message must name the
+ * variable without ever showing it.
+ */
+test("a credential carrying a control character is refused, and never echoed", () => {
+  const canary = "shpat_SECRETCANARY";
+  for (const variable of ["SHOPIFY_ACCESS_TOKEN", "SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET"]) {
+    const env = { SHOPIFY_STORE_DOMAIN: "my-store.myshopify.com", [variable]: `${canary}\nX-Evil: 1` };
+    assert.equal(reasonOf(env), "invalid_credential", variable);
+    const message = errorOf(env).message;
+    assert.equal(message.includes(canary), false, `${variable} must not echo its value`);
+    assert.match(message, new RegExp(variable));
+  }
+});
+
+test("a credential is trimmed, because a trailing newline is a paste artifact", () => {
+  const config = loadConfig({
+    SHOPIFY_STORE_DOMAIN: "my-store.myshopify.com",
+    SHOPIFY_ACCESS_TOKEN: "  shpat_padded\n",
+  } as NodeJS.ProcessEnv);
+  assert.equal(config.accessToken, "shpat_padded");
+  // Ordinary tokens keep working: the check is control characters only.
+  assert.equal(
+    loadConfig({ ...FULL, SHOPIFY_ACCESS_TOKEN: "shpat_0123456789abcdef" } as NodeJS.ProcessEnv).accessToken,
+    "shpat_0123456789abcdef",
+  );
+});
+
 test("numeric overrides are honored; zero disables retries", () => {
   const config = loadConfig({
     ...FULL,
