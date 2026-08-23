@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   organization, and the `shop_not_permitted` answer now comes back as a hint
   naming that mismatch.
 
+### Fixed
+
+- `set_inventory` and `create_basic_discount` never worked: both sent a field
+  their input type does not accept, so the API refused every call. Found by
+  running them against a live store — a mocked transport cannot catch it.
+  `create_basic_discount` now selects buyers through `context: {all: ALL}`
+  instead of the deprecated `customerSelection`, and `set_inventory` opts out
+  of the compare-and-set check with an explicit `changeFromQuantity: null` per
+  quantity rather than the input-level `ignoreCompareQuantity`, which Shopify
+  removes in API version 2026-04. Both are verified against the real API.
+
 ### Changed
 
 - `SHOPIFY_ACCESS_TOKEN` is now optional: either it or the client id/secret pair
