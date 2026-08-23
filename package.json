@@ -1,6 +1,6 @@
 {
   "name": "mcp-shopify-admin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for the Shopify Admin API (GraphQL) — products, orders, customers, inventory, discounts and shop data of one store for AI agents.",
   "mcpName": "io.github.A1-x-Tech/mcp-shopify-admin",
   "type": "module",
