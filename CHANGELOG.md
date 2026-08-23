@@ -37,6 +37,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   of the compare-and-set check with an explicit `changeFromQuantity: null` per
   quantity rather than the input-level `ignoreCompareQuantity`, which Shopify
   removes in API version 2026-04. Both are verified against the real API.
+- `graphql_request` no longer repeats a mutation that `operationName` selects.
+  GraphQL runs the operation the name picks, but the retry gate read the
+  document's first one, so a mutation standing behind a query was treated as a
+  read and replayed on a 5xx. The document is now scanned for every operation
+  and the selected one decides; an unknown name, an unreadable document, or
+  several operations with no name given are all treated as writes.
+- A credential holding a control character no longer reaches `fetch`, whose
+  thrown message quotes the offending value and put the token into the model's
+  context and the host's log. Credentials are trimmed and refused at startup
+  with a message that names the variable and never shows it.
+- A malformed configuration value no longer makes the startup line and the
+  initialize instructions report the credentials as missing while they are set
+  correctly; both now lead with the variable that actually broke.
+- A dropped connection on the token exchange is retried, like the same failure
+  against the API endpoint. Refusals (4xx) are still not repeated, and a hung
+  exchange now names the token endpoint instead of the Admin API.
 
 ### Changed
 
