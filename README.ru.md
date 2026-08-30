@@ -64,9 +64,11 @@
 
 **Через приложение:**
 
-1. Откройте **Settings → Plugins → MCP servers**.
+1. Откройте **Settings → MCP servers**.
 2. Нажмите **Add server**.
-3. Добавьте `npx -y mcp-shopify-admin@latest` и задайте `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_CLIENT_ID` и `SHOPIFY_CLIENT_SECRET`.
+3. Выберите **STDIO**, затем укажите `npx -y mcp-shopify-admin@latest` и задайте `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_CLIENT_ID` и `SHOPIFY_CLIENT_SECRET`.
+
+4. Нажмите **Save**, затем **Restart**.
 
 **Через командную строку:**
 
@@ -109,7 +111,9 @@ claude mcp list
 
 <br>
 
-Откройте **Settings → Developer → Edit Config** и добавьте:
+Актуальный официальный путь — **Settings → Extensions**. Для пользовательского desktop extension откройте **Advanced settings → Extension Developer → Install Extension…**, выберите файл `.mcpb` и следуйте подсказкам.
+
+Этот репозиторий сейчас публикует npm-пакет со stdio и пока не содержит `.mcpb`. Поэтому используйте приведённый ниже JSON stdio-конфиг как fallback только в сборках Claude Desktop, где ещё поддерживается локальная конфигурация:
 
 ```json
 {
@@ -127,7 +131,7 @@ claude mcp list
 }
 ```
 
-Если кнопки **Edit Config** нет, отредактируйте `~/Library/Application Support/Claude/claude_desktop_config.json` на macOS или `%APPDATA%\Claude\claude_desktop_config.json` на Windows.
+В таких сборках сохраните его в `~/Library/Application Support/Claude/claude_desktop_config.json` на macOS или `%APPDATA%\Claude\claude_desktop_config.json` на Windows.
 
 [Документация Claude Desktop MCP](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 
