@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "shopify-admin": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-shopify-admin@latest"
+      ],
+      "env": {
+        "SHOPIFY_STORE_DOMAIN": "${SHOPIFY_STORE_DOMAIN}",
+        "SHOPIFY_CLIENT_ID": "${SHOPIFY_CLIENT_ID}",
+        "SHOPIFY_CLIENT_SECRET": "${SHOPIFY_CLIENT_SECRET}"
+      }
+    }
+  }
+}

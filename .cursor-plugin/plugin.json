@@ -1,0 +1,22 @@
+{
+  "name": "mcp-shopify-admin",
+  "displayName": "A1 Shopify Admin MCP",
+  "description": "MCP server for the Shopify Admin API (GraphQL): products, orders, customers, inventory and discounts for AI agents.",
+  "author": {
+    "name": "Aleksandr Kovalko & Zinnur Temerbekov"
+  },
+  "homepage": "https://github.com/A1-x-Tech/mcp-shopify-admin#readme",
+  "repository": "https://github.com/A1-x-Tech/mcp-shopify-admin",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "shopify",
+    "shopify-admin",
+    "ecommerce",
+    "products",
+    "orders",
+    "inventory"
+  ],
+  "logo": "assets/a1-logo.svg"
+}
