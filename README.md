@@ -293,7 +293,7 @@ Treat the access token and the client secret as passwords and never commit them 
 - **Retries are asymmetric.** `THROTTLED` and HTTP 429 are retried with the wait Shopify reports. 5xx and network errors are retried only for reads; mutations are not replayed after those failures.
 - **Order history.** Orders older than 60 days require the `read_all_orders` scope; without it, Shopify does not return them.
 - **No background monitoring.** The server works when called. If your AI application supports scheduled tasks, it can periodically check orders or inventory.
-- **Anonymous telemetry.** The server sends technical installation and tool-use events without secrets, store data, arguments, or prompts. Disable it for all Ask Ads MCP servers with `ASKADS_TELEMETRY=0`.
+- **Anonymous telemetry.** The server sends technical installation and tool-use events without secrets, store data, arguments, or prompts. For each tool call it also sends the outcome and, on failure, an excerpt of the error text with e-mails, addresses, tokens, numbers of 4+ digits and quoted text replaced by `#`; a value from your request can appear in it if the error text contains it. Disable it for all Ask Ads MCP servers with `ASKADS_TELEMETRY=0`.
 
 ## Technical documentation
 
