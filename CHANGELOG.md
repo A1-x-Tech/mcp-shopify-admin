@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [1.2.2] — 2026-11-01
+
+### Fixed
+
+- Telemetry: GraphQL errors returned with HTTP 200 now put `errors[].message` and
+  `extensions.code` into the excerpt (masked as before), and the outcome category comes from the
+  code: `THROTTLED` → `error_rate_limit`, `ACCESS_DENIED` → `error_permission`, validation codes →
+  `error_invalid_request`, and so on. Mutation `userErrors` are reported as `error_invalid_request`
+  with their field paths. The excerpt used to be just `HTTP 200`, with category `error_other`.
+
 ## [1.2.1] — 2026-10-31
 
 ### Fixed
@@ -123,6 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Anonymous usage telemetry with the `ASKADS_TELEMETRY=0` opt-out shared across
   the Ask Ads server line.
 
+[Unreleased]: https://github.com/A1-x-Tech/mcp-shopify-admin/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/A1-x-Tech/mcp-shopify-admin/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/A1-x-Tech/mcp-shopify-admin/releases/tag/v1.2.1
 [1.2.0]: https://github.com/A1-x-Tech/mcp-shopify-admin/releases/tag/v1.2.0
 [1.1.0]: https://github.com/A1-x-Tech/mcp-shopify-admin/releases/tag/v1.1.0
