@@ -13,6 +13,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { instrumentToolCalls, Telemetry, telemetryEnabled, DETAIL_MAX, errorDetail, noteFailure, TOOL_OUTCOMES, toolOutcome } from "./telemetry.js";
 import { fail } from "./tools/util.js";
+import { MutationError, ShopifyAdminError } from "./types.js";
 
 interface Sent {
   url: string;
@@ -682,4 +683,112 @@ test("a Node error with a code or system fields sends its type and code, never t
     ["error_internal", "internal: TypeError"],
   ]);
   assert.ok(!JSON.stringify(sent).includes("Иван"));
+});
+
+// Shopify answers GraphQL errors with HTTP 200: the excerpt used to be just "HTTP 200" and the
+// reason error_other (seen in production for graphql_request).
+async function shopifyCall(err: unknown, thrown = false) {
+  const { mcp, sent } = await pairWith((server) =>
+    server.registerTool("graphql_request", { description: "g", inputSchema: {} }, async () => {
+      if (thrown) throw err;
+      return fail(err);
+    }),
+  );
+  const res = await mcp.callTool({ name: "graphql_request", arguments: {} });
+  const call = sent.find((s) => s.body.event === "tool_call")!;
+  return { text: JSON.stringify(res), sent: JSON.stringify(sent), reason: call.body.reason, detail: call.body.error_detail };
+}
+
+const graphqlError = (errors: unknown[], status = 200) =>
+  new ShopifyAdminError(status, { errors }, undefined, { kind: "graphql" });
+
+test("a GraphQL validation error carries its code and masked message; camelCase codes are invalid_request", async () => {
+  const call = await shopifyCall(
+    graphqlError([
+      {
+        message: "Field 'secretField' doesn't exist on type 'QueryRoot'",
+        locations: [{ line: 1, column: 9 }],
+        extensions: { code: "undefinedField", typeName: "QueryRoot", fieldName: "secretField" },
+      },
+    ]),
+  );
+  assert.match(call.text, /secretField/, "the model still reads the full message");
+  assert.equal(call.reason, "error_invalid_request");
+  assert.equal(call.detail, "HTTP 200; undefinedField Field # doesn't exist on type #");
+  assert.ok(!call.sent.includes("secretField"));
+});
+
+test("extensions.code decides the reason: THROTTLED, ACCESS_DENIED, NOT_FOUND, INTERNAL_SERVER_ERROR", async () => {
+  for (const [code, message, reason] of [
+    ["THROTTLED", "Throttled", "error_rate_limit"],
+    ["ACCESS_DENIED", "Access denied for products field. Required access: `read_products` access scope.", "error_permission"],
+    ["NOT_FOUND", "Not found", "error_not_found"],
+    ["INTERNAL_SERVER_ERROR", "Internal error. Looks like something went wrong on our end.", "error_upstream"],
+    ["MAX_COST_EXCEEDED", "Query cost is 1500, which exceeds the single query max cost limit (1000).", "error_invalid_request"],
+  ] as const) {
+    const call = await shopifyCall(graphqlError([{ message, extensions: { code } }]));
+    assert.equal(call.reason, reason, code);
+    assert.ok(String(call.detail).startsWith(`HTTP 200; ${code} `), `${code}: ${call.detail}`);
+  }
+});
+
+test("THROTTLED anywhere wins over an earlier code; several errors are joined and deduplicated", async () => {
+  const call = await shopifyCall(
+    graphqlError([
+      { message: "Access denied", extensions: { code: "ACCESS_DENIED" } },
+      { message: "Access denied", extensions: { code: "ACCESS_DENIED" } },
+      { message: "Throttled", extensions: { code: "THROTTLED" } },
+    ]),
+  );
+  assert.equal(call.reason, "error_rate_limit");
+  assert.equal(call.detail, "HTTP 200; ACCESS_DENIED Access denied; THROTTLED Throttled");
+});
+
+test("a code-less GraphQL error keeps its message and falls back to the text patterns", async () => {
+  const call = await shopifyCall(graphqlError([{ message: "syntax error, unexpected end of file", locations: [{ line: 1, column: 5 }] }]));
+  assert.equal(call.reason, "error_invalid_request");
+  assert.equal(call.detail, "HTTP 200; syntax error, unexpected end of file");
+  const other = await shopifyCall(graphqlError([{ message: "Something odd happened" }]));
+  assert.equal(other.reason, "error_other");
+  assert.equal(other.detail, "HTTP 200; Something odd happened");
+});
+
+test("GraphQL messages are masked: emails, hosts, tokens, long numbers, quotes; an unsafe code is dropped", async () => {
+  const call = await shopifyCall(
+    graphqlError([
+      {
+        message: "Customer ivan@example.com on shop.myshopify.com order 123456 token shpat_abcdef1234567890abcd \"Иван\"",
+        extensions: { code: "BAD USER {INPUT}" },
+      },
+    ]),
+  );
+  for (const leak of ["ivan@", "myshopify", "123456", "shpat_", "Иван", "{INPUT}"]) {
+    assert.ok(!call.sent.includes(leak), `${leak}: ${call.detail}`);
+  }
+  assert.ok(String(call.detail).length <= DETAIL_MAX);
+});
+
+test("a thrown ShopifyAdminError is classified the same way", async () => {
+  const call = await shopifyCall(graphqlError([{ message: "Throttled", extensions: { code: "THROTTLED" } }]), true);
+  assert.equal(call.reason, "error_rate_limit");
+  assert.equal(call.detail, "HTTP 200; THROTTLED Throttled");
+});
+
+test("a mutation's userErrors arrive as invalid_request with field paths and masked messages", async () => {
+  const call = await shopifyCall(
+    new MutationError("productCreate", [
+      { field: ["product", "title"], message: "Title can't be blank" },
+      { field: ["product", "handle"], message: "Handle 'my-secret-product' has already been taken" },
+    ]),
+  );
+  assert.match(call.text, /my-secret-product/);
+  assert.equal(call.reason, "error_invalid_request");
+  assert.equal(call.detail, "userErrors; product.title Title can't be blank; product.handle Handle # has already been taken");
+  assert.ok(!call.sent.includes("my-secret-product"));
+});
+
+test("a non-GraphQL ShopifyAdminError keeps the generic excerpt", async () => {
+  const call = await shopifyCall(new ShopifyAdminError(401, { errors: "[API] Invalid API key or access token" }));
+  assert.equal(call.reason, "error_auth");
+  assert.match(String(call.detail), /^HTTP 401/);
 });
