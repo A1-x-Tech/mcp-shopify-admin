@@ -257,10 +257,10 @@ export function errorDetail(text: string): string {
 
 type NetworkFailure = { reason: ToolOutcome; text: string };
 
-/** Set by fail(), never serialized: our own refusal ("local"), a bug in our code ("internal") or a failed fetch ("network"). */
+/** Set by fail(), never serialized: our own refusal ("local"), a bug in our code ("internal") a failed fetch ("network") or a Shopify GraphQL/userErrors refusal ("shopify"). */
 const FAILURE_ORIGIN = new WeakMap<
   object,
-  { origin: "local" | "internal" | "error"; text: string } | ({ origin: "network" } & NetworkFailure)
+  { origin: "local" | "internal" | "error"; text: string } | ({ origin: "network" | "shopify" } & NetworkFailure)
 >();
 const JS_ERRORS = new Set(["TypeError", "ReferenceError", "RangeError", "SyntaxError", "EvalError", "URIError"]);
 
@@ -300,12 +300,90 @@ function fetchFailure(err: unknown): NetworkFailure | undefined {
   };
 }
 
+// --- Shopify-specific: GraphQL `errors` and mutation `userErrors` ---------------------------------
+// Shopify answers both with HTTP 200, so the generic excerpt sees only "HTTP 200" and the generic
+// patterns find no class. The messages and `extensions.code` live in the error object: read them there.
+
+// Admin API error codes. graphql-ruby's static validation codes are camelCase (undefinedField,
+// argumentLiteralsIncompatible, missingRequiredArguments …): the document itself is wrong.
+const GRAPHQL_CODE_OUTCOMES = new Map<string, ToolOutcome>([
+  ["THROTTLED", "error_rate_limit"],
+  ["ACCESS_DENIED", "error_permission"],
+  ["SHOP_INACTIVE", "error_permission"],
+  ["UNAUTHENTICATED", "error_auth"],
+  ["NOT_FOUND", "error_not_found"],
+  ["INTERNAL_SERVER_ERROR", "error_upstream"],
+  ["SERVICE_UNAVAILABLE", "error_upstream"],
+  ...["MAX_COST_EXCEEDED", "BAD_REQUEST", "BAD_USER_INPUT", "GRAPHQL_PARSE_FAILED", "GRAPHQL_VALIDATION_FAILED", "ARGUMENT_ERROR", "INVALID"].map(
+    (c) => [c, "error_invalid_request"] as const,
+  ),
+]);
+const SAFE_CODE = /^[A-Za-z][A-Za-z0-9_]{1,40}$/;
+const MESSAGE_MAX = 120;
+
+function graphqlCodeOutcome(code: string): ToolOutcome | undefined {
+  return GRAPHQL_CODE_OUTCOMES.get(code) ?? (/^[a-z][A-Za-z]+$/.test(code) ? "error_invalid_request" : undefined);
+}
+
+/** One masked "CODE message" fragment per error, deduplicated, joined like errorDetail's. */
+function maskedEntries(head: string, entries: Array<[code: string, message: string]>): string {
+  const parts: string[] = [head];
+  for (const [code, message] of entries.slice(0, 5)) {
+    const text = scrub(message.slice(0, MESSAGE_MAX).split(/\s+/).filter(Boolean).join(" "));
+    const token = [code, text].filter(Boolean).join(" ");
+    if (token && !parts.includes(token)) parts.push(token);
+  }
+  return parts.join("; ").slice(0, DETAIL_MAX);
+}
+
+/**
+ * A ShopifyAdminError whose body carries GraphQL `errors` (duck-typed: telemetry imports nothing of the
+ * client). THROTTLED anywhere wins, as in the client's retry; otherwise the first mapped code; else the
+ * generic patterns over the status and messages.
+ */
+function graphqlFailure(err: unknown): NetworkFailure | undefined {
+  if (!(err instanceof Error) || err.name !== "ShopifyAdminError") return undefined;
+  const { status, body } = err as { status?: unknown; body?: unknown };
+  const errors = (body as { errors?: unknown } | null | undefined)?.errors;
+  if (typeof status !== "number" || !Array.isArray(errors) || errors.length === 0) return undefined;
+  const entries = errors.map((e): [string, string] => {
+    const { message, extensions } = (e ?? {}) as { message?: unknown; extensions?: { code?: unknown } };
+    const code = typeof extensions?.code === "string" && SAFE_CODE.test(extensions.code) ? extensions.code : "";
+    return [code, typeof message === "string" ? message : ""];
+  });
+  const codes = entries.map(([code]) => code).filter(Boolean);
+  const reason =
+    (codes.includes("THROTTLED") ? "error_rate_limit" : undefined) ??
+    codes.map(graphqlCodeOutcome).find(Boolean) ??
+    toolOutcome({ isError: true, content: [{ type: "text", text: `HTTP ${status} ${entries.map(([, m]) => m).join("; ")}` }] });
+  return { reason, text: maskedEntries(`HTTP ${status}`, entries) };
+}
+
+/** A MutationError: the API refused the input (userErrors), the transport was fine. */
+function userErrorsFailure(err: unknown): NetworkFailure | undefined {
+  if (!(err instanceof Error) || err.name !== "MutationError") return undefined;
+  const userErrors = (err as { userErrors?: unknown }).userErrors;
+  if (!Array.isArray(userErrors) || userErrors.length === 0) return undefined;
+  const entries = userErrors.map((e): [string, string] => {
+    const { field, message } = (e ?? {}) as { field?: unknown; message?: unknown };
+    const path = Array.isArray(field) ? field.filter((f) => typeof f === "string").join(".") : "";
+    return [SAFE_CODE.test(path.replace(/\./g, "_")) ? path : "", typeof message === "string" ? message : ""];
+  });
+  return { reason: "error_invalid_request", text: maskedEntries("userErrors", entries) };
+}
+
+function shopifyFailure(err: unknown): NetworkFailure | undefined {
+  return graphqlFailure(err) ?? userErrorsFailure(err);
+}
+
 export function noteFailure<T>(result: T, err: unknown): T {
   try {
     if (result && typeof result === "object") {
       const net = fetchFailure(err);
+      const shopify = net ? undefined : shopifyFailure(err);
       if (typeof err === "string") FAILURE_ORIGIN.set(result, { origin: "local", text: err });
       else if (net) FAILURE_ORIGIN.set(result, { origin: "network", ...net });
+      else if (shopify) FAILURE_ORIGIN.set(result, { origin: "shopify", ...shopify });
       else {
         const bug = jsBug(err);
         const text = bug ?? errorText(err);
@@ -331,7 +409,12 @@ function reportCall(telemetry: Telemetry, tool: string, value: unknown, thrown: 
     let detail = "";
     if (reason !== "ok") {
       const noted = value && typeof value === "object" ? FAILURE_ORIGIN.get(value) : undefined;
-      const net = noted?.origin === "network" ? noted : thrown ? fetchFailure(value) : undefined;
+      const net =
+        noted?.origin === "network" || noted?.origin === "shopify"
+          ? noted
+          : thrown
+            ? (fetchFailure(value) ?? shopifyFailure(value))
+            : undefined;
       const bug = noted?.origin === "internal" ? noted.text : thrown ? jsBug(value) : undefined;
       if (net) {
         reason = net.reason;
